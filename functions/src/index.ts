@@ -1,6 +1,8 @@
-import { auth, https, logger } from "firebase-functions";
+import { auth, https, logger, runWith } from "firebase-functions";
 import * as admin from "firebase-admin"
 import { SetOptions } from "firebase-admin/firestore";
+import { isValidPostRequest, isValidRedirectUrl } from "./helper/canva-helper";
+import QueryString from "qs";
 
 admin.initializeApp()
 
@@ -93,12 +95,30 @@ export const linkUserToCanva = https.onCall(async (data, context) => {
   }
 })
 
-export const isUserLinkedToCanva = https.onRequest(async (req, res) => {
+export const isUserLinkedToCanva = runWith({secrets: ['CANVA_SECRET']}).https.onRequest(async (req, res) => {
+
+  const canva_secret = process.env.CANVA_SECRET
+  if(canva_secret === undefined) {
+    res.status(401).send({type: 'FAIL', message: 'Secret key not found'})
+    return
+  }
+
+  if (req.method === 'POST') {
+  //   if(!isValidPostRequest(canva_secret, req)) {
+  //     res.status(401).send({type: 'FAIL', message: 'Failed signature test'})
+  //     return
+    // }
+  } else {
+    res.status(401).send({type: 'FAIL', message: 'Invalid request method type'})
+    return
+  }
+  
   const canvaUserId = req.header('X-Canva-User-Id')
   const canvaBrandId = req.header('X-Canva-Brand-Id')
 
   if (canvaUserId === undefined || canvaBrandId === undefined) {
     res.status(200).send({type: "FAIL", message: "Missing request body"})
+    return
   }
   
   try {
@@ -110,6 +130,7 @@ export const isUserLinkedToCanva = https.onRequest(async (req, res) => {
       // Return false if there is not user linked
       console.log(`There are no Canva users that match canva user ID ${canvaUserId} and brand ID ${canvaBrandId}`)
       res.status(200).send({isAuthenticated: false})
+      return
     } else {
       // Log any cases where there are more than one user with the same canvaUserId and canvaBrandId
       if(snapshot.docs.length > 0) {
@@ -117,24 +138,45 @@ export const isUserLinkedToCanva = https.onRequest(async (req, res) => {
       }
       // Return true if this canvaUserId is already to a SwayTribe account
       res.status(200).send({isAuthenticated: true})
+      return
     }
   } catch (error) {
     // Return error if any
     console.log(`Error checking if Canva user to SwayTribe account`, error)
     res.status(500).send({error: 'Error checking if Canva user is a SwayTribe user'})
+    return
   }
 })
 
-export const unlinkUserFromCanva = https.onRequest(async (req, res) => {
+export const unlinkUserFromCanva = runWith({secrets: ['CANVA_SECRET']}).https.onRequest(async (req, res) => {
+
+  const canva_secret = process.env.CANVA_SECRET
+  if(canva_secret === undefined) {
+    res.status(401).send({type: 'FAIL', message: 'Secret key not found'})
+    return
+  }
+
+  if (req.method === 'POST') {
+    if(!isValidPostRequest(canva_secret, req)) {
+      res.status(401).send({type: 'FAIL', message: 'Failed signature test'})
+      return
+    }
+  } else {
+    res.status(401).send({type: 'FAIL', message: 'Invalid request method type'})
+    return
+  }
+
   const canvaUserId: string = req.body.user
   const canvaBrandId: string = req.body.brand
 
   if (!req.url.includes('/configuration/delete')) {
     res.status(200).send({type: "FAIL", message: "This is not a valid URL for this trigger"})
+    return
   }
 
   if (canvaUserId === undefined && canvaBrandId === undefined) {
     res.status(200).send({type: "FAIL", message: "Missing request body"})
+    return
   }
 
   try {
@@ -146,6 +188,7 @@ export const unlinkUserFromCanva = https.onRequest(async (req, res) => {
       // Return success if snapshot is empty, ideally this should not happen since a user should be using this link via Canva only
       console.log(`No Swaytribe user found for Canva user ID ${canvaUserId}`)
       res.status(200).send({type: "SUCCESS"})
+      return
     } else {
       if (snapshot.docs.length > 0) {
         // Log any cases where there are more than one user with the same canvaUserId and canvaBrandId
@@ -160,11 +203,36 @@ export const unlinkUserFromCanva = https.onRequest(async (req, res) => {
 
       // Return success if Swaytribe user is successfully unlinked from Canva
       res.status(200).send({type: "SUCCESS"})
+      return
     }
 
   } catch (error) {
     // Return error if any
-    console.log(``, error)
+    console.log(error)
     res.status(500).send({error: 'Error unlinking Canva user from SwayTribe'})
+    return
   }
+})
+
+export const redirectCanvaToSwayTribe = runWith({secrets: ['CANVA_SECRET']}).https.onRequest(async (req, res) => {
+
+  const canva_secret = process.env.CANVA_SECRET
+  if(canva_secret === undefined) {
+    res.status(401).send({type: 'FAIL', message: 'Secret key not found'})
+    return
+  }
+
+  if (req.method === 'GET') {
+    if(!isValidRedirectUrl(canva_secret, req)) {
+      res.status(401).send({type: 'FAIL', message: 'Failed signature test'})
+      return
+    }
+  } else {
+    res.status(401).send({type: 'FAIL', message: 'Invalid request method type'})
+    return
+  }
+  
+  const stringifiedParams = QueryString.stringify(req.query)
+  res.status(302).redirect(`http://localhost:3000/authenticate/canva?${stringifiedParams}`)
+  return 
 })
