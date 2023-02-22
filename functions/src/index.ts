@@ -234,6 +234,11 @@ export const redirectCanvaToSwayTribe = runWith({secrets: ['CANVA_SECRET']}).htt
   }
   
   const stringifiedParams = QueryString.stringify(req.query)
-  res.status(302).redirect(`http://localhost:3000/authenticate/canva?${stringifiedParams}`)
-  return 
+  if (process.env.FUNCTIONS_EMULATOR == 'true') {
+    res.status(302).redirect(`http://localhost:3000/authenticate/canva?${stringifiedParams}`)
+    return
+  } else {
+    res.status(200).redirect(`https://www.swaytribe.com/authenticate/canva?${stringifiedParams}`)
+  }
+})
 })
