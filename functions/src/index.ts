@@ -2,6 +2,7 @@ import { auth, https, logger, runWith } from "firebase-functions";
 import * as admin from "firebase-admin"
 import { SetOptions } from "firebase-admin/firestore";
 import { isValidPostRequest, isValidRedirectUrl } from "./helper/canva-helper";
+import { isValidPostRequest, isValidRedirectUrl } from "./helper/canva-signature-helper";
 import QueryString from "qs";
 
 admin.initializeApp()
