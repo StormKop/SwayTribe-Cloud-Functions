@@ -1,9 +1,9 @@
 import { auth, https, logger, runWith } from "firebase-functions";
 import * as admin from "firebase-admin"
 import { SetOptions } from "firebase-admin/firestore";
-import { isValidPostRequest, isValidRedirectUrl } from "./helper/canva-helper";
 import { isValidPostRequest, isValidRedirectUrl } from "./helper/canva-signature-helper";
 import QueryString from "qs";
+import axios from "axios";
 
 admin.initializeApp()
 
@@ -105,9 +105,9 @@ export const isUserLinkedToCanva = runWith({secrets: ['CANVA_SECRET']}).https.on
   }
 
   if (req.method === 'POST') {
-  //   if(!isValidPostRequest(canva_secret, req)) {
-  //     res.status(401).send({type: 'FAIL', message: 'Failed signature test'})
-  //     return
+    // if(!isValidPostRequest(canva_secret, req)) {
+    //   res.status(401).send({type: 'FAIL', message: 'Failed signature test'})
+    //   return
     // }
   } else {
     res.status(401).send({type: 'FAIL', message: 'Invalid request method type'})
@@ -241,4 +241,106 @@ export const redirectCanvaToSwayTribe = runWith({secrets: ['CANVA_SECRET']}).htt
     res.status(200).redirect(`https://www.swaytribe.com/authenticate/canva?${stringifiedParams}`)
   }
 })
+
+export const canvaGetAllInstagramAccounts = https.onRequest(async (req, res) => {
+  const canvaUserId = req.header('X-Canva-User-Id')
+  const canvaBrandId = req.header('X-Canva-Brand-Id')
+
+  if (canvaUserId === undefined || canvaBrandId === undefined) {
+    res.status(200).send({type: "FAIL", message: "Missing request body"})
+    return
+  }
+
+  try {
+    //Check if the requesting Canva User ID is linked to an existing SwayTribe account
+    const userRef = admin.firestore().collection("users")
+    const snapshot = await userRef.where('canvaUserId', '==', canvaUserId).where('canvaBrandIds','array-contains',canvaBrandId).get()
+
+    if(snapshot.empty) {
+      // Return false if there is not user linked
+      console.log(`There are no Canva users that match canva user ID ${canvaUserId} and brand ID ${canvaBrandId}`)
+      res.status(200).send({type: 'FAIL', message: 'There are no Canva users matching this request'})
+      return
+    } else {
+      // Log any cases where there are more than one user with the same canvaUserId and canvaBrandId
+      if(snapshot.docs.length > 1) {
+        console.log(`There are multiple users with the same canva user ID ${canvaUserId}`)
+        res.status(200).send({type: 'FAIL', message: 'There are multiple accounts tied to this Canva user'})
+      } else {
+        snapshot.docs.forEach(async (doc: admin.firestore.DocumentData) => {
+          const accessToken = doc.data().access_token_ig
+          const response = await axios.get(`https://graph.facebook.com/v15.0/me/accounts?fields=instagram_business_account%7Bid%2Cname%2Cusername%2Cfollowers_count%2Cprofile_picture_url%7D&access_token=${accessToken}`);
+          const accounts = response.data.data.map((account: any) => ({
+            'id': account.instagram_business_account.id,
+            'name': account.instagram_business_account.name,
+            'username': account.instagram_business_account.username,
+            'followers': account.instagram_business_account.followers_count,
+            'profile_picture_url': account.instagram_business_account.profile_picture_url
+          }))
+          res.status(200).send({type: 'SUCCESS', data: accounts})
+        })
+      }
+    }
+  } catch (error) {
+    // Return error if any
+    console.log(`Error getting all user Instagram account for Canva`, error)
+    res.status(500).send({error: 'Error getting all user Instagram account for Canva'})
+    return
+  }
+})
+
+export const getBusinessAccountDetails = https.onRequest(async (req, res) => {
+  const canvaUserId = req.header('X-Canva-User-Id')
+  const canvaBrandId = req.header('X-Canva-Brand-Id')
+  const businessProfileName = req.query.profileName
+  const requesterPageId = req.query.requesterPageId
+
+  if (canvaUserId === undefined || canvaBrandId === undefined || businessProfileName === undefined || requesterPageId === undefined) {
+    res.status(200).send({type: "FAIL", message: "Missing request header or body"})
+    return
+  }
+
+  try {
+    //Check if the requesting Canva User ID is linked to an existing SwayTribe account
+    const userRef = admin.firestore().collection("users")
+    const snapshot = await userRef.where('canvaUserId', '==', canvaUserId).where('canvaBrandIds','array-contains',canvaBrandId).get()
+
+    if(snapshot.empty) {
+      // Return false if there is not user linked
+      console.log(`There are no Canva users that match canva user ID ${canvaUserId} and brand ID ${canvaBrandId}`)
+      res.status(200).send({type: 'FAIL', message: 'There are no Canva users matching this request'})
+      return
+    } else {
+      // Log any cases where there are more than one user with the same canvaUserId and canvaBrandId
+      if(snapshot.docs.length > 1) {
+        console.log(`There are multiple users with the same canva user ID ${canvaUserId}`)
+        res.status(200).send({type: 'FAIL', message: 'There are multiple accounts tied to this Canva user'})
+      } else {
+        snapshot.docs.forEach(async (doc: admin.firestore.DocumentData) => {
+          const accessToken = doc.data().access_token_ig
+          const response = await axios.get(`https://graph.facebook.com/v15.0/${requesterPageId}?fields=business_discovery.username(${businessProfileName})%7Bfollowers_count%2Cmedia_count%2Cbiography%2Cname%2Cusername%2Cfollows_count%2Cwebsite%2Cprofile_picture_url%7D&access_token=${accessToken}`);
+          const business_discovery = response.data.business_discovery
+          const result = {
+            'id': business_discovery.id,
+            'profile_picture_url': business_discovery.profile_picture_url,
+            'properties': [
+              {'property': 'username', 'title': 'Username', 'value': business_discovery.username},
+              {'property': 'name', 'title': 'Profile Name', 'value': business_discovery.name},
+              {'property': 'followers', 'title': 'Total followers', 'value': business_discovery.followers_count},
+              {'property': 'following', 'title': 'Total following', 'value': business_discovery.follows_count},
+              {'property': 'biography', 'title': 'Biography', 'value': business_discovery.biography},
+              {'property': 'website', 'title': 'Website', 'value': business_discovery.website},
+              {'property': 'media_count', 'title': 'Total posts', 'value': business_discovery.media_count}
+            ]
+          }
+          res.status(200).send({type: 'SUCCESS', data: result})
+        })
+      }
+    }
+  } catch (error) {
+    // Return error if any
+    console.log(`Error getting all user Instagram account for Canva`, error)
+    res.status(500).send({error: 'Error getting all user Instagram account for Canva'})
+    return
+  }
 })
