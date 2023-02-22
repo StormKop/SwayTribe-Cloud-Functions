@@ -134,7 +134,7 @@ export const isUserLinkedToCanva = runWith({secrets: ['CANVA_SECRET']}).https.on
       return
     } else {
       // Log any cases where there are more than one user with the same canvaUserId and canvaBrandId
-      if(snapshot.docs.length > 0) {
+      if(snapshot.docs.length > 1) {
         console.log(`There are multiple users with the same canva user ID ${canvaUserId}`)
       }
       // Return true if this canvaUserId is already to a SwayTribe account
@@ -191,7 +191,7 @@ export const unlinkUserFromCanva = runWith({secrets: ['CANVA_SECRET']}).https.on
       res.status(200).send({type: "SUCCESS"})
       return
     } else {
-      if (snapshot.docs.length > 0) {
+      if (snapshot.docs.length > 1) {
         // Log any cases where there are more than one user with the same canvaUserId and canvaBrandId
         console.log(`There are multiple users with the same canva user ID ${canvaUserId}`)
       }
