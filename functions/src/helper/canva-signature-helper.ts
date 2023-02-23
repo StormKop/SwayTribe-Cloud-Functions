@@ -6,7 +6,7 @@ import QueryString from "qs";
 /**
  * Checks if a POST request is valid.
  */
-export function isValidPostRequest(secret: string, request: https.Request) {
+export function isValidPostRequest(secret: string, request: https.Request, endpoint: string) {
   const sentAtSeconds = Number(request.header("X-Canva-Timestamp"));
   const receivedAtSeconds = new Date().getTime() / 1000;
 
@@ -16,7 +16,7 @@ export function isValidPostRequest(secret: string, request: https.Request) {
 
   const version = "v1";
   const headers = createHeaderString(request.headers);
-  const endpoint = request.path;
+
   const body = request["rawBody"];
   const payload = `${version}:${headers}:${endpoint}:${body}`;
 
@@ -32,7 +32,7 @@ export function isValidPostRequest(secret: string, request: https.Request) {
 /**
  * Checks if a GET request is valid.
  */
-export function isValidGetRequest(secret: string, request: https.Request) {
+export function isValidGetRequest(secret: string, request: https.Request, endpoint: string) {
   const sentAtSeconds = Number(request.header("X-Canva-Timestamp"));
   const receivedAtSeconds = new Date().getTime() / 1000;
 
@@ -42,7 +42,6 @@ export function isValidGetRequest(secret: string, request: https.Request) {
 
   const version = "v1";
   const headers = createHeaderString(request.headers);
-  const endpoint = request.path;
   const params = createQueryParameterString(request.query);
   const payload = `${version}:${headers}:${endpoint}:${params}`;
 
@@ -96,9 +95,9 @@ function isValidTimestamp(
  * name in alphabetical order and filtering out certain headers.
  */
 function createHeaderString(headers: IncomingHttpHeaders) {
-  const FILTERED_HEADERS = ["x-canva-signature", "x-forwarded-"];
+  const FILTERED_HEADERS = ["x-canva-signature", "x-forwarded-", "connection"];
 
-  return Object.keys(headers)
+  const result = Object.keys(headers)
     .filter((header) => header.startsWith("x-"))
     .filter(
       (header) =>
@@ -109,6 +108,8 @@ function createHeaderString(headers: IncomingHttpHeaders) {
     .sort()
     .map((key) => headers[key])
     .join(":");
+
+  return result
 }
 
 /**
@@ -117,7 +118,6 @@ function createHeaderString(headers: IncomingHttpHeaders) {
  */
 function createQueryParameterString(params: QueryString.ParsedQs) {
   return Object.keys(params)
-    .filter((param) => param.startsWith("x-"))
     .sort()
     .map((key) => params[key])
     .join(":");

@@ -1,7 +1,7 @@
 import { auth, https, logger, runWith } from "firebase-functions";
 import * as admin from "firebase-admin"
 import { SetOptions } from "firebase-admin/firestore";
-import { isValidPostRequest, isValidRedirectUrl } from "./helper/canva-signature-helper";
+import { isValidGetRequest, isValidPostRequest, isValidRedirectUrl } from "./helper/canva-signature-helper";
 import QueryString from "qs";
 import axios from "axios";
 
@@ -105,10 +105,10 @@ export const isUserLinkedToCanva = runWith({secrets: ['CANVA_SECRET']}).https.on
   }
 
   if (req.method === 'POST') {
-    // if(!isValidPostRequest(canva_secret, req)) {
-    //   res.status(401).send({type: 'FAIL', message: 'Failed signature test'})
-    //   return
-    // }
+    if(!isValidPostRequest(canva_secret, req, '/isUserLinkedToCanva')) {
+      res.status(401).send({type: 'FAIL', message: 'Failed signature test'})
+      return
+    }
   } else {
     res.status(401).send({type: 'FAIL', message: 'Invalid request method type'})
     return
@@ -158,7 +158,7 @@ export const unlinkUserFromCanva = runWith({secrets: ['CANVA_SECRET']}).https.on
   }
 
   if (req.method === 'POST') {
-    if(!isValidPostRequest(canva_secret, req)) {
+    if(!isValidPostRequest(canva_secret, req, req.path)) {
       res.status(401).send({type: 'FAIL', message: 'Failed signature test'})
       return
     }
@@ -242,7 +242,24 @@ export const redirectCanvaToSwayTribe = runWith({secrets: ['CANVA_SECRET']}).htt
   }
 })
 
-export const canvaGetAllInstagramAccounts = https.onRequest(async (req, res) => {
+export const canvaGetAllInstagramAccounts = runWith({secrets: ['CANVA_SECRET']}).https.onRequest(async (req, res) => {
+
+  const canva_secret = process.env.CANVA_SECRET
+  if(canva_secret === undefined) {
+    res.status(401).send({type: 'FAIL', message: 'Secret key not found'})
+    return
+  }
+
+  if (req.method === 'GET') {
+    if(!isValidGetRequest(canva_secret, req, '/canvaGetAllInstagramAccounts')) {
+      res.status(401).send({type: 'FAIL', message: 'Failed signature test'})
+      return
+    }
+  } else {
+    res.status(401).send({type: 'FAIL', message: 'Invalid request method type'})
+    return
+  }
+
   const canvaUserId = req.header('X-Canva-User-Id')
   const canvaBrandId = req.header('X-Canva-Brand-Id')
 
@@ -289,7 +306,24 @@ export const canvaGetAllInstagramAccounts = https.onRequest(async (req, res) => 
   }
 })
 
-export const getBusinessAccountDetails = https.onRequest(async (req, res) => {
+export const getBusinessAccountDetails = runWith({secrets: ['CANVA_SECRET']}).https.onRequest(async (req, res) => {
+
+  const canva_secret = process.env.CANVA_SECRET
+  if(canva_secret === undefined) {
+    res.status(401).send({type: 'FAIL', message: 'Secret key not found'})
+    return
+  }
+
+  if (req.method === 'GET') {
+    if(!isValidGetRequest(canva_secret, req, '/getBusinessAccountDetails')) {
+      res.status(401).send({type: 'FAIL', message: 'Failed signature test'})
+      return
+    }
+  } else {
+    res.status(401).send({type: 'FAIL', message: 'Invalid request method type'})
+    return
+  }
+
   const canvaUserId = req.header('X-Canva-User-Id')
   const canvaBrandId = req.header('X-Canva-Brand-Id')
   const businessProfileName = req.query.profileName
