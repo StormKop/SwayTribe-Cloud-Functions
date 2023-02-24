@@ -95,7 +95,7 @@ function isValidTimestamp(
  * name in alphabetical order and filtering out certain headers.
  */
 function createHeaderString(headers: IncomingHttpHeaders) {
-  const FILTERED_HEADERS = ["x-canva-signature", "x-forwarded-", "connection"];
+  const FILTERED_HEADERS = ["x-canva-signature", "x-forwarded-", "x-cloud-trace-context", "x-appengine","x-google-serverless-node-envoy-config-gaewithsupervisor"];
 
   const result = Object.keys(headers)
     .filter((header) => header.startsWith("x-"))
