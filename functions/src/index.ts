@@ -373,7 +373,7 @@ export const getBusinessAccountDetails = runWith({secrets: ['CANVA_SECRET']}).ht
     }
   } catch (error) {
     // Return error if any
-    console.log(`Error getting all user Instagram account for Canva`, error)
+    console.log(`Error getting business account details`, error)
     res.status(500).send({error: 'Error getting all user Instagram account for Canva'})
     return
   }
