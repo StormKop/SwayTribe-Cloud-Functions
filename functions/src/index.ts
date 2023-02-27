@@ -379,3 +379,54 @@ export const getBusinessAccountDetails = runWith({secrets: ['CANVA_SECRET']}).ht
     return
   }
 })
+
+// Get's all the users Instagram accounts that will be shown in the website /dashboard
+export const getAllInstagramAccounts = https.onCall(async (data, context) => {
+
+  // Check if user is authenticated else return an error
+  if (!context.auth) {
+    throw new https.HttpsError('unauthenticated', 'User not authenticated.')
+  }
+
+  // Get user UID
+  const uid = context.auth.uid
+
+  try {
+    // Get users document from Firestore
+    const userRefDoc = admin.firestore().collection("users").doc(uid)
+    const snapshot = await userRefDoc.get()
+
+    // Check if the document exist
+    if(!snapshot.exists) {
+      // Return false if there is not user linked
+      console.log(`There are no SwayTribe users that match the incoming ${uid}`)
+      throw new https.HttpsError('not-found', 'User is not found.')
+    } else {
+      // Get the document data
+      const data = snapshot.data()
+      // Return an error of document is empty, this likely means the user is not created or the onCreate user data did not work
+      if (data === undefined) {
+        throw new https.HttpsError('not-found', 'There is no data found for this user')
+      } else {
+        // Get the users IG access token from the Firestore document data
+        const accessToken = data.access_token_ig
+        // Make a call to IG to get all of the users IG accounts
+        const response = await axios.get(`https://graph.facebook.com/v15.0/me/accounts?fields=instagram_business_account%7Bid%2Cname%2Cusername%2Cfollowers_count%2Cprofile_picture_url%7D&access_token=${accessToken}`);
+        // Loop through the results and create an array of IG accounts
+        const accounts = response.data.data.map((account: any) => ({
+          'id': account.instagram_business_account.id,
+          'name': account.instagram_business_account.name,
+          'username': account.instagram_business_account.username,
+          'followers': account.instagram_business_account.followers_count,
+          'profile_picture_url': account.instagram_business_account.profile_picture_url
+        }))
+        // Return the IG accounts for consumption on the client side
+        return accounts        
+      }
+    }
+  } catch (error) {
+    // Return error if any
+    console.log(`Error getting all user Instagram account for SwayTribe`, error)
+    throw new https.HttpsError('unknown', 'Error getting all user Instagram account for SwayTribe')
+  }
+})
