@@ -4,6 +4,7 @@ import { SetOptions } from "firebase-admin/firestore";
 import { isValidGetRequest, isValidPostRequest, isValidRedirectUrl } from "./helper/canva-signature-helper";
 import QueryString from "qs";
 import axios from "axios";
+import { environment } from "./helper/helper";
 
 admin.initializeApp()
 
@@ -234,11 +235,14 @@ export const redirectCanvaToSwayTribe = runWith({secrets: ['CANVA_SECRET']}).htt
   }
   
   const stringifiedParams = QueryString.stringify(req.query)
-  if (process.env.FUNCTIONS_EMULATOR == 'true') {
+  const currentEnvironment = environment()
+  if (currentEnvironment === 'DEV') {
     res.status(302).redirect(`http://localhost:3000/authenticate/canva?${stringifiedParams}`)
     return
-  } else {
+  } else if (currentEnvironment === 'PROD') {
     res.status(200).redirect(`https://www.swaytribe.com/authenticate/canva?${stringifiedParams}`)
+  } else {
+    res.status(401).send({type: 'FAIL', message: 'Invalid environment'})
   }
 })
 
