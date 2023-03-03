@@ -11,14 +11,12 @@ admin.initializeApp()
 export const createUser = auth.user().onCreate((user) => {
   const uid = user.uid
   const email = user.email
-  const createdAt = user.metadata.creationTime
-  const updatedAt = user.metadata.creationTime
 
   const userRef = admin.firestore().collection("users").doc(uid)
   return userRef.create({
     email: email,
-    createdAt: createdAt,
-    updatedAt: updatedAt
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp()
   })
 })
 
@@ -39,7 +37,8 @@ export const saveUserAccessToken = https.onCall(async (data, context) => {
     
     return userRef.update({
       access_token_ig: access_token,
-      access_token_type_ig: token_type
+      access_token_type_ig: token_type,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
     })
   } catch (error) {
     logger.log(error)
@@ -79,10 +78,18 @@ export const linkUserToCanva = https.onCall(async (data, context) => {
       const data = snapshot.data()
       if(data !== undefined) {
         if (data.canvaBrandIds === undefined) {
-          await userDoc.set({canvaUserId: canvaUserId, canvaBrandIds: [canvaBrandId]}, mergeOptions)
+          await userDoc.set({
+            canvaUserId: canvaUserId,
+            canvaBrandIds: [canvaBrandId],
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+          }, mergeOptions)
           return {success: true, state: canvaState}
         } else {
-          await userDoc.set({canvaUserId: canvaUserId, canvaBrandIds: admin.firestore.FieldValue.arrayUnion(canvaBrandId)}, mergeOptions)
+          await userDoc.set({
+            canvaUserId: canvaUserId,
+            canvaBrandIds: admin.firestore.FieldValue.arrayUnion(canvaBrandId),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+          }, mergeOptions)
           return {success: true, state: canvaState}
         }
       } else {
@@ -200,7 +207,11 @@ export const unlinkUserFromCanva = runWith({secrets: ['CANVA_SECRET']}).https.on
       //TODO: This should only unlink the user from the one brand ID only!!!
       snapshot.docs.forEach( async (doc) => {
         // Unlink all Canva identifiers from this user
-        await doc.ref.update({canvaUserId: '', canvaBrandIds: []})
+        await doc.ref.update({
+          canvaUserId: '', 
+          canvaBrandIds: [],
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        })
       })
 
       // Return success if Swaytribe user is successfully unlinked from Canva
