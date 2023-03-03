@@ -20,7 +20,7 @@ export const createUser = auth.user().onCreate((user) => {
   })
 })
 
-export const saveUserAccessToken = https.onCall(async (data, context) => {
+export const saveUserAccessToken = runWith({secrets: ['FACEBOOK_CLIENT_ID','FACEBOOK_CLIENT_SECRET']}).https.onCall(async (data, context) => {
   // Check if user is authenticated else return an error
   if (!context.auth) {
     throw new https.HttpsError('unauthenticated', 'User not authenticated')
@@ -28,16 +28,25 @@ export const saveUserAccessToken = https.onCall(async (data, context) => {
   const uid = context.auth.uid
   
   // Check if any data is given
-  const access_token = data.access_token as string
-  const token_type = data.token_type as number
+  const shortLivedToken = data.access_token as string
+
+  // Get Facebook detail
+  const fbClientId = process.env.FACEBOOK_CLIENT_ID
+  const fbClientSecret = process.env.FACEBOOK_CLIENT_SECRET
+  
+  if(fbClientId === undefined || fbClientSecret === undefined ) {
+    throw new https.HttpsError('failed-precondition', 'Secret key not found')
+  }
 
   try {
-    // Save Instagram User Access Token - short lived
+    // Convert short lived access token to never expire token
+    const longLivedToken = await getLongLivedToken(shortLivedToken, fbClientId, fbClientSecret)
+    
+    // Save Instagram never expire token to Firestore
     const userRef = admin.firestore().collection("users").doc(uid)
     
     return userRef.update({
-      access_token_ig: access_token,
-      access_token_type_ig: token_type,
+      access_token_ig: longLivedToken,
       updatedAt: admin.firestore.FieldValue.serverTimestamp()
     })
   } catch (error) {
@@ -445,3 +454,35 @@ export const getAllInstagramAccounts = https.onCall(async (data, context) => {
     throw new https.HttpsError('unknown', 'Error getting all user Instagram account for SwayTribe')
   }
 })
+
+const getLongLivedToken = async (shortLivedToken: string, clientID: string, clientSecret: string): Promise<string> => {
+  const longLivedResponse = await axios.get(`https://graph.facebook.com/v15.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${clientID}&client_secret=${clientSecret}&fb_exchange_token=${shortLivedToken}`)
+
+  if (longLivedResponse.status !== 200) {
+    throw new https.HttpsError('unknown', 'Failed to convert short lived token to long lived token', longLivedResponse.data.error)
+  }
+  const longLivedToken = longLivedResponse.data.access_token
+
+  // BELOW IS THE IMPLEMENTATION FOR NEVER EXPIRE TOKENS
+  // TO IMPLEMENT THIS, YOU WILL NEED TO ENSURE TO HAVE A COLLECTION OF ALL THE USERS PAGES
+  // WITHIN THESE PAGES, THERE SHOULD BE A PAGE ID AND ACCESS TOKEN
+  // WHEN PULLING DATA I.E GETALLINSTAGRAMUSERS() USE THE LONG LIVED ACCESS TOKEN
+  // WHEN PULLING DATA FOR A SPECIFIC PAGE, REPLACE ACCOUNTS/ME WITH THE PAGE ID RETRIEVED FROM THE NEVER EXPIRE TOKEN
+
+  // const userIdResponse = await axios.get(`https://graph.facebook.com/me?access_token=${longLivedAccessToken}`)
+
+  // if (userIdResponse.status !== 200) {
+  //   throw new https.HttpsError('unknown', 'Failed to get user ID from long lived access token', userIdResponse.data.error)
+  // }
+  // const userId = userIdResponse.data.id
+
+  // const neverExpireTokenResponse = await axios.get(`https://graph.facebook.com/v15.0/${userId}/accounts?access_token=${longLivedAccessToken}`)
+
+  // if (neverExpireTokenResponse.status !== 200) {
+  //   throw new https.HttpsError('unknown', 'Failed to get never expire token from long lived access token', neverExpireTokenResponse.data.error)
+  // }
+
+  // YOU CAN LOOP THROUGH THIS TO GET EACH PAGES ACCESS TOKEN, SAVE THE PAGE ID AND ACCESS TOKEN TO FIRESTORE USERS COLLECTION AS A NEW COLLECTION I.E PAGES
+  // const neverExpireToken = neverExpireTokenResponse.data.data[0].access_token
+  return longLivedToken
+}
