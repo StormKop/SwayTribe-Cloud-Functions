@@ -20,6 +20,32 @@ export const createUser = auth.user().onCreate((user) => {
   })
 })
 
+// User requesting to be added to Swaytribe waitlist
+export const addToWaitlist = https.onCall(async (data, _) => {
+  // Get email address
+  const email = data.email
+
+  // Return error if there is no email addrress or if the email address is just a blank string
+  if (email === undefined || email.length === 0) {
+    throw new https.HttpsError('failed-precondition', 'Email field is missing or empty')
+  }
+
+  // Check if user is already in SwayTribe waitlist
+  const subscriberDoc = admin.firestore().collection("subscribers").doc(email)
+  const subscribedData = await subscriberDoc.get()
+
+  if(subscribedData.exists === true) {
+    // Return error if user is already on the waitlist
+    throw new https.HttpsError('already-exists', 'User is already on SwayTribe waitlist')
+  }
+
+  // Add user to waitlist if they are not in the waitlist
+  return await subscriberDoc.create({
+    email: email,
+    createdAt: admin.firestore.FieldValue.serverTimestamp()
+  })
+})
+
 export const saveUserAccessToken = runWith({secrets: ['FACEBOOK_CLIENT_ID','FACEBOOK_CLIENT_SECRET']}).https.onCall(async (data, context) => {
   // Check if user is authenticated else return an error
   if (!context.auth) {
