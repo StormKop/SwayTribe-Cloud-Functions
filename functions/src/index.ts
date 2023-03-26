@@ -292,70 +292,6 @@ export const redirectCanvaToSwayTribe = runWith({secrets: ['CANVA_SECRET']}).htt
   }
 })
 
-export const canvaGetAllInstagramAccounts = runWith({secrets: ['CANVA_SECRET']}).https.onRequest(async (req, res) => {
-
-  const canva_secret = process.env.CANVA_SECRET
-  if(canva_secret === undefined) {
-    res.status(401).send({type: 'FAIL', message: 'Secret key not found'})
-    return
-  }
-
-  if (req.method === 'GET') {
-    if(!isValidGetRequest(canva_secret, req, '/canvaGetAllInstagramAccounts')) {
-      res.status(401).send({type: 'FAIL', message: 'Failed signature test'})
-      return
-    }
-  } else {
-    res.status(401).send({type: 'FAIL', message: 'Invalid request method type'})
-    return
-  }
-
-  const canvaUserId = req.header('X-Canva-User-Id')
-  const canvaBrandId = req.header('X-Canva-Brand-Id')
-
-  if (canvaUserId === undefined || canvaBrandId === undefined) {
-    res.status(200).send({type: "FAIL", message: "Missing request body"})
-    return
-  }
-
-  try {
-    //Check if the requesting Canva User ID is linked to an existing SwayTribe account
-    const userRef = admin.firestore().collection("users")
-    const snapshot = await userRef.where('canvaUserId', '==', canvaUserId).where('canvaBrandIds','array-contains',canvaBrandId).get()
-
-    if(snapshot.empty) {
-      // Return false if there is not user linked
-      console.log(`There are no Canva users that match canva user ID ${canvaUserId} and brand ID ${canvaBrandId}`)
-      res.status(200).send({type: 'FAIL', message: 'There are no Canva users matching this request'})
-      return
-    } else {
-      // Log any cases where there are more than one user with the same canvaUserId and canvaBrandId
-      if(snapshot.docs.length > 1) {
-        console.log(`There are multiple users with the same canva user ID ${canvaUserId}`)
-        res.status(200).send({type: 'FAIL', message: 'There are multiple accounts tied to this Canva user'})
-      } else {
-        snapshot.docs.forEach(async (doc: admin.firestore.DocumentData) => {
-          const accessToken = doc.data().access_token_ig
-          const response = await axios.get(`https://graph.facebook.com/v15.0/me/accounts?fields=instagram_business_account%7Bid%2Cname%2Cusername%2Cfollowers_count%2Cprofile_picture_url%7D&access_token=${accessToken}`);
-          const accounts = response.data.data.map((account: any) => ({
-            'id': account.instagram_business_account.id,
-            'name': account.instagram_business_account.name,
-            'username': account.instagram_business_account.username,
-            'followers': account.instagram_business_account.followers_count,
-            'profile_picture_url': account.instagram_business_account.profile_picture_url
-          }))
-          res.status(200).send({type: 'SUCCESS', data: accounts})
-        })
-      }
-    }
-  } catch (error) {
-    // Return error if any
-    console.log(`Error getting all user Instagram account for Canva`, error)
-    res.status(500).send({error: 'Error getting all user Instagram account for Canva'})
-    return
-  }
-})
-
 export const getBusinessAccountDetails = runWith({secrets: ['CANVA_SECRET']}).https.onRequest(async (req, res) => {
 
   const canva_secret = process.env.CANVA_SECRET
@@ -430,6 +366,68 @@ export const getBusinessAccountDetails = runWith({secrets: ['CANVA_SECRET']}).ht
   }
 })
 
+export const canvaGetAllInstagramAccounts = runWith({secrets: ['CANVA_SECRET']}).https.onRequest(async (req, res) => {
+
+  const canva_secret = process.env.CANVA_SECRET
+  if(canva_secret === undefined) {
+    res.status(401).send({type: 'FAIL', message: 'Secret key not found'})
+    return
+  }
+
+  if (req.method === 'GET') {
+    if(!isValidGetRequest(canva_secret, req, '/canvaGetAllInstagramAccounts')) {
+      res.status(401).send({type: 'FAIL', message: 'Failed signature test'})
+      return
+    }
+  } else {
+    res.status(401).send({type: 'FAIL', message: 'Invalid request method type'})
+    return
+  }
+
+  const canvaUserId = req.header('X-Canva-User-Id')
+  const canvaBrandId = req.header('X-Canva-Brand-Id')
+
+  if (canvaUserId === undefined || canvaBrandId === undefined) {
+    res.status(200).send({type: "FAIL", message: "Missing request body"})
+    return
+  }
+
+  //Check if the requesting Canva User ID is linked to an existing SwayTribe account
+  const userRef = admin.firestore().collection("users")
+  const snapshot = await userRef.where('canvaUserId', '==', canvaUserId).where('canvaBrandIds','array-contains',canvaBrandId).get()
+  if(snapshot.empty) {
+    // Return false if there is not user linked
+    console.log(`There are no Canva users that match canva user ID ${canvaUserId} and brand ID ${canvaBrandId}`)
+    res.status(200).send({type: 'FAIL', message: 'There are no Canva users matching this request'})
+    return
+  } else {
+    // Log any cases where there are more than one user with the same canvaUserId and canvaBrandId
+    if(snapshot.docs.length > 1) {
+      console.log(`There are multiple users with the same canva user ID ${canvaUserId}`)
+      res.status(200).send({type: 'FAIL', message: 'There are multiple accounts tied to this Canva user'})
+      return
+    } else {
+      snapshot.docs.forEach(async (doc: admin.firestore.DocumentData) => {
+        const accessToken = doc.data().access_token_ig
+        if (accessToken === undefined) {
+          console.log(`This user has not connected their Instagram account to SwayTribe`)
+          res.status(200).send({type: 'FAIL', message: 'No Instagram account linked to this SwayTribe user'})
+        }
+        const response = await axios.get(`https://graph.facebook.com/v15.0/me/accounts?fields=instagram_business_account%7Bid%2Cname%2Cusername%2Cfollowers_count%2Cprofile_picture_url%7D&access_token=${accessToken}`);
+        const accounts = response.data.data.map((account: any) => ({
+          'id': account.instagram_business_account.id,
+          'name': account.instagram_business_account.name,
+          'username': account.instagram_business_account.username,
+          'followers': account.instagram_business_account.followers_count,
+          'profile_picture_url': account.instagram_business_account.profile_picture_url
+        }))
+        res.status(200).send({type: 'SUCCESS', data: accounts})
+        return
+      })
+    }
+  }
+})
+
 // Get's all the users Instagram accounts that will be shown in the website /dashboard
 export const getAllInstagramAccounts = https.onCall(async (data, context) => {
 
@@ -441,43 +439,40 @@ export const getAllInstagramAccounts = https.onCall(async (data, context) => {
   // Get user UID
   const uid = context.auth.uid
 
-  try {
-    // Get users document from Firestore
-    const userRefDoc = admin.firestore().collection("users").doc(uid)
-    const snapshot = await userRefDoc.get()
-
-    // Check if the document exist
-    if(!snapshot.exists) {
-      // Return false if there is not user linked
-      console.log(`There are no SwayTribe users that match the incoming ${uid}`)
-      throw new https.HttpsError('not-found', 'User is not found.')
+  // Get users document from Firestore
+  const userRefDoc = admin.firestore().collection("users").doc(uid)
+  const snapshot = await userRefDoc.get()
+  
+  // Check if the document exist
+  if(!snapshot.exists) {
+    // Return false if there is not user linked
+    console.log(`There are no SwayTribe users that match the incoming ${uid}`)
+    throw new https.HttpsError('not-found', 'User is not found.')
+  } else {
+    // Get the document data
+    const data = snapshot.data()
+    // Return an error of document is empty, this likely means the user is not created or the onCreate user data did not work
+    if (data === undefined) {
+      throw new https.HttpsError('not-found', 'There is no data found for this user')
     } else {
-      // Get the document data
-      const data = snapshot.data()
-      // Return an error of document is empty, this likely means the user is not created or the onCreate user data did not work
-      if (data === undefined) {
-        throw new https.HttpsError('not-found', 'There is no data found for this user')
-      } else {
-        // Get the users IG access token from the Firestore document data
-        const accessToken = data.access_token_ig
-        // Make a call to IG to get all of the users IG accounts
-        const response = await axios.get(`https://graph.facebook.com/v15.0/me/accounts?fields=instagram_business_account%7Bid%2Cname%2Cusername%2Cfollowers_count%2Cprofile_picture_url%7D&access_token=${accessToken}`);
-        // Loop through the results and create an array of IG accounts
-        const accounts = response.data.data.map((account: any) => ({
-          'id': account.instagram_business_account.id,
-          'name': account.instagram_business_account.name,
-          'username': account.instagram_business_account.username,
-          'followers': account.instagram_business_account.followers_count,
-          'profile_picture_url': account.instagram_business_account.profile_picture_url
-        }))
-        // Return the IG accounts for consumption on the client side
-        return accounts        
+      // Get the users IG access token from the Firestore document data
+      if (data.access_token_ig === undefined) {
+        throw new https.HttpsError('failed-precondition', 'User has not given access to any Instagram accounts')
       }
+      const accessToken = data.access_token_ig
+      // Make a call to IG to get all of the users IG accounts
+      const response = await axios.get(`https://graph.facebook.com/v15.0/me/accounts?fields=instagram_business_account%7Bid%2Cname%2Cusername%2Cfollowers_count%2Cprofile_picture_url%7D&access_token=${accessToken}`);
+      // Loop through the results and create an array of IG accounts
+      const accounts = response.data.data.map((account: any) => ({
+        'id': account.instagram_business_account.id,
+        'name': account.instagram_business_account.name,
+        'username': account.instagram_business_account.username,
+        'followers': account.instagram_business_account.followers_count,
+        'profile_picture_url': account.instagram_business_account.profile_picture_url
+      }))
+      // Return the IG accounts for consumption on the client side
+      return accounts        
     }
-  } catch (error) {
-    // Return error if any
-    console.log(`Error getting all user Instagram account for SwayTribe`, error)
-    throw new https.HttpsError('unknown', 'Error getting all user Instagram account for SwayTribe')
   }
 })
 
