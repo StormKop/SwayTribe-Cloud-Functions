@@ -457,7 +457,7 @@ export const getAllInstagramAccounts = https.onCall(async (data, context) => {
     } else {
       // Get the users IG access token from the Firestore document data
       if (data.access_token_ig === undefined) {
-        throw new https.HttpsError('failed-precondition', 'User has not given access to any Instagram accounts')
+        throw new https.HttpsError('failed-precondition', 'No Instagram account linked to this SwayTribe user')
       }
       const accessToken = data.access_token_ig
       // Make a call to IG to get all of the users IG accounts
