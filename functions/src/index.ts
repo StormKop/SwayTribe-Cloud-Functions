@@ -5,8 +5,12 @@ import { isValidGetRequest, isValidPostRequest, isValidRedirectUrl } from "./hel
 import QueryString from "qs";
 import axios from "axios";
 import { environment } from "./helper/helper";
+import cors from 'cors';
+import { getCanvaUser, getPublicKeyJson } from "./helper/jwt_verification";
 
 admin.initializeApp()
+
+const corsHandler = cors({ origin: 'https://app-aafqj9tmlb4.canva-apps.com'});
 
 export const createUser = auth.user().onCreate((user) => {
   const uid = user.uid
@@ -139,57 +143,37 @@ export const linkUserToCanva = https.onCall(async (data, context) => {
   }
 })
 
-export const isUserLinkedToCanva = runWith({secrets: ['CANVA_SECRET']}).https.onRequest(async (req, res) => {
+export const isUserLinkedToCanva = https.onRequest(async (req, res) => {
+  corsHandler(req, res, async () => {
+    try {
+      // Verify JWT and get Canva user ID and brand ID
+      const user = await getCanvaUser(req)
+      //Check if the requesting Canva User ID is linked to an existing SwayTribe account
+      const userRef = admin.firestore().collection("users")
+      const snapshot = await userRef.where('canvaUserId', '==', user.userId).where('canvaBrandIds','array-contains',user.brandId).get()
 
-  const canva_secret = process.env.CANVA_SECRET
-  if(canva_secret === undefined) {
-    res.status(401).send({type: 'FAIL', message: 'Secret key not found'})
-    return
-  }
-
-  if (req.method === 'POST') {
-    if(!isValidPostRequest(canva_secret, req, '/isUserLinkedToCanva')) {
-      res.status(401).send({type: 'FAIL', message: 'Failed signature test'})
-      return
-    }
-  } else {
-    res.status(401).send({type: 'FAIL', message: 'Invalid request method type'})
-    return
-  }
-  
-  const canvaUserId = req.header('X-Canva-User-Id')
-  const canvaBrandId = req.header('X-Canva-Brand-Id')
-
-  if (canvaUserId === undefined || canvaBrandId === undefined) {
-    res.status(200).send({type: "FAIL", message: "Missing request body"})
-    return
-  }
-  
-  try {
-    //Check if the requesting Canva User ID is linked to an existing SwayTribe account
-    const userRef = admin.firestore().collection("users")
-    const snapshot = await userRef.where('canvaUserId', '==', canvaUserId).where('canvaBrandIds','array-contains',canvaBrandId).get()
-
-    if(snapshot.empty) {
-      // Return false if there is not user linked
-      console.log(`There are no Canva users that match canva user ID ${canvaUserId} and brand ID ${canvaBrandId}`)
-      res.status(200).send({isAuthenticated: false})
-      return
-    } else {
-      // Log any cases where there are more than one user with the same canvaUserId and canvaBrandId
-      if(snapshot.docs.length > 1) {
-        console.log(`There are multiple users with the same canva user ID ${canvaUserId}`)
+      if(snapshot.empty) {
+        // Return false if there is not user linked
+        console.log(`There are no Canva users that match canva user ID ${user.userId} and brand ID ${user.brandId}`)
+        throw new Error('User not found in SwayTribe')
+      } else {
+        // Log any cases where there are more than one user with the same canvaUserId and canvaBrandId
+        if(snapshot.docs.length > 1) {
+          console.log(`There are multiple users with the same canva user ID ${user.userId}`)
+        }
+        // Return true if this canvaUserId is already to a SwayTribe account
+        res.status(200).send({isAuthenticated: true})
+        return
       }
-      // Return true if this canvaUserId is already to a SwayTribe account
-      res.status(200).send({isAuthenticated: true})
+    } catch (error) {
+      // Return error if any
+      console.log(error)
+      if(error instanceof Error) {
+        res.status(401).send({isAuthenticated: false, message: error.message})
+      }
       return
     }
-  } catch (error) {
-    // Return error if any
-    console.log(`Error checking if Canva user to SwayTribe account`, error)
-    res.status(500).send({error: 'Error checking if Canva user is a SwayTribe user'})
-    return
-  }
+  })
 })
 
 export const unlinkUserFromCanva = runWith({secrets: ['CANVA_SECRET']}).https.onRequest(async (req, res) => {
@@ -507,3 +491,31 @@ const getLongLivedToken = async (shortLivedToken: string, clientID: string, clie
   // const neverExpireToken = neverExpireTokenResponse.data.data[0].access_token
   return longLivedToken
 }
+
+export const updateCanvaPublicKey = runWith({secrets: ['CANVA_APP_ID']}).pubsub.schedule('every 1 minute').onRun((context) => {
+  // Get Canva App ID from environment variables
+  const canvaAppId = process.env.CANVA_APP_ID
+
+  // Check if Canva App ID is set, else return an error
+  if(canvaAppId === undefined) {
+    console.log('Canva App ID is not set')
+    return
+  }
+
+  // Make a call to Canva to get the public keys
+  return axios.get('http://localhost:3002/v0/apps/AAFQj9tmlb4/jwks')
+  .then((response) => {
+    // Get the public keys from the response
+    const publicKeys = response.data
+    const data = {
+      publicKeys,
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    }
+    // Add the public keys to the database
+    return admin.firestore().collection('canva').add(data)
+  }).catch((error) => {
+    // Log the error and return an error
+    console.log(error)
+    throw new https.HttpsError('unknown', 'Failed to retrieve update Canva public keys', error)
+  })
+})
