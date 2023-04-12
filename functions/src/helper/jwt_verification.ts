@@ -89,15 +89,13 @@ function findPublicKeyById(json: AuthKeyJson, kid: string): PublicKey | undefine
 
 // Get Auth key JSON from database
 export const getPublicKeyJson = async (): Promise<AuthKeyJson> => {
-  try {
     // Search database for public key
-    const publicKeyRef = admin.firestore().collection("canva").orderBy("createdAt", "desc").limit(1)
+    const publicKeyRef = admin.firestore().collection("canva").doc("publicKey")
     const snapshot = await publicKeyRef.get()
-    const data = snapshot.docs[0].data()
+    const data = snapshot.data()
+    if (data === undefined) {
+      throw new Error("Failed to find Canva public key in database")
+    }
     const authKeyJson = data.publicKeys as AuthKeyJson
     return authKeyJson
-  } catch (error) {
-    // Return error if public key is not found
-    throw new Error("Failed to find public key in database")
-  }
 }

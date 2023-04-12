@@ -492,7 +492,7 @@ const getLongLivedToken = async (shortLivedToken: string, clientID: string, clie
   return longLivedToken
 }
 
-export const updateCanvaPublicKey = runWith({secrets: ['CANVA_APP_ID']}).pubsub.schedule('every 1 minute').onRun((context) => {
+export const updateCanvaPublicKey = runWith({secrets: ['CANVA_APP_ID']}).pubsub.schedule('every 1 hour').onRun((context) => {
   // Get Canva App ID from environment variables
   const canvaAppId = process.env.CANVA_APP_ID
 
@@ -512,7 +512,7 @@ export const updateCanvaPublicKey = runWith({secrets: ['CANVA_APP_ID']}).pubsub.
       createdAt: admin.firestore.FieldValue.serverTimestamp()
     }
     // Add the public keys to the database
-    return admin.firestore().collection('canva').add(data)
+    return admin.firestore().collection('canva').doc('publicKey').set(data)
   }).catch((error) => {
     // Log the error and return an error
     console.log(error)
