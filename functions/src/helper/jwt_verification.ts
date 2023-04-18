@@ -1,14 +1,17 @@
 import { https } from "firebase-functions/v1";
 import jwt, { JwtPayload } from 'jsonwebtoken';
-import * as admin from "firebase-admin"
+import { JwksClient } from "jwks-rsa";
 
 interface CanvaUser {
   userId: string,
   brandId: string
 }
 
+const CACHE_EXPIRY_MS = 60 * 60 * 1_000; // 60 minutes
+const TIMEOUT_MS = 30 * 1_000; // 30 seconds
+
 // Verify JWT token and return Canva user
-export const getCanvaUser = async (request: https.Request): Promise<CanvaUser> => {
+export const getCanvaUser = async (request: https.Request, appId: string): Promise<CanvaUser> => {
   const token = getTokenFromHeader(request)
   const decodedToken = jwt.decode(token, { complete: true })
 
@@ -18,30 +21,26 @@ export const getCanvaUser = async (request: https.Request): Promise<CanvaUser> =
     throw new Error('kid is missing')
   }
 
-  // Get public key list JSON from Canva server
-  const json = await getPublicKeyJson()
-
-  // Get public key from the returned JSON
-  const publicKey = findPublicKeyById(json, kid)
-  if (!publicKey) {
-    throw new Error('Public key is not found')
-  }
-
-  // Check that public key is active
-  const currentTime = new Date().getTime();
-  if (publicKey.activation_time_ms > currentTime) {
-    throw new Error("Public key is not active")
-  }
+  // Get the public key
+  const jwks = new JwksClient({
+    cache: true,
+    cacheMaxAge: CACHE_EXPIRY_MS,
+    timeout: TIMEOUT_MS,
+    rateLimit: true,
+    jwksUri: `https://api.canva.com/rest/v1/apps/${appId}/jwks`,
+  });
+  const signingKey = await jwks.getSigningKey(kid);
+  const publicKey = signingKey.getPublicKey();
 
   // Verify and validate the JWT
-  const verifiedToken = jwt.verify(token, publicKey.jwk) as JwtPayload;
-  const isValidToken = verifiedToken["userId"] && verifiedToken["brandId"] && verifiedToken["aud"]
+  const verified = jwt.verify(token, publicKey, { audience: appId }) as JwtPayload;
+  const isValidToken = verified.aud || verified.brandId || verified.userId
 
   // Return Canva user if token is valid else return an error
   if (isValidToken) {
     return {
-      userId: verifiedToken["userId"],
-      brandId: verifiedToken["brandId"]
+      userId: verified.userId,
+      brandId: verified.brandId
     }
   } else {
     throw new Error("Invalid token")
@@ -67,35 +66,35 @@ function getTokenFromHeader(request: https.Request) {
   return token;
 }
 
-interface AuthKeyJson {
-  auth_key: AuthKey;
-}
+// interface AuthKeyJson {
+//   auth_key: AuthKey;
+// }
 
-interface AuthKey {
-  app: string;
-  public_keys: PublicKey[];
-}
+// interface AuthKey {
+//   app: string;
+//   public_keys: PublicKey[];
+// }
 
-interface PublicKey {
-  key_id: string;
-  activation_time_ms: number;
-  jwk: string;
-}
+// interface PublicKey {
+//   key_id: string;
+//   activation_time_ms: number;
+//   jwk: string;
+// }
 
-// Find public key from the returned JSON
-function findPublicKeyById(json: AuthKeyJson, kid: string): PublicKey | undefined {
-  return json.auth_key.public_keys.find((key) => key.key_id === kid);
-}
+// // Find public key from the returned JSON
+// function findPublicKeyById(json: AuthKeyJson, kid: string): PublicKey | undefined {
+//   return json.auth_key.public_keys.find((key) => key.key_id === kid);
+// }
 
-// Get Auth key JSON from database
-export const getPublicKeyJson = async (): Promise<AuthKeyJson> => {
-    // Search database for public key
-    const publicKeyRef = admin.firestore().collection("canva").doc("publicKey")
-    const snapshot = await publicKeyRef.get()
-    const data = snapshot.data()
-    if (data === undefined) {
-      throw new Error("Failed to find Canva public key in database")
-    }
-    const authKeyJson = data.publicKeys as AuthKeyJson
-    return authKeyJson
-}
+// // Get Auth key JSON from database
+// export const getPublicKeyJson = async (): Promise<AuthKeyJson> => {
+//     // Search database for public key
+//     const publicKeyRef = admin.firestore().collection("canva").doc("publicKey")
+//     const snapshot = await publicKeyRef.get()
+//     const data = snapshot.data()
+//     if (data === undefined) {
+//       throw new Error("Failed to find Canva public key in database")
+//     }
+//     const authKeyJson = data.publicKeys as AuthKeyJson
+//     return authKeyJson
+// }
