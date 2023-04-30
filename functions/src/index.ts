@@ -323,22 +323,8 @@ export const getBusinessAccountDetails = runWith({secrets: ['CANVA_APP_ID']}).ht
         } else {
           snapshot.docs.forEach(async (doc: admin.firestore.DocumentData) => {
             const accessToken = doc.data().access_token_ig
-            const response = await axios.get(`https://graph.facebook.com/v15.0/${requesterPageId}?fields=business_discovery.username(${businessProfileName})%7Bfollowers_count%2Cmedia_count%2Cbiography%2Cname%2Cusername%2Cfollows_count%2Cwebsite%2Cprofile_picture_url%7D&access_token=${accessToken}`);
-            const business_discovery = response.data.business_discovery
-            const result = {
-              'id': business_discovery.id,
-              'profile_picture_url': business_discovery.profile_picture_url,
-              'properties': [
-                {'property': 'username', 'title': 'Username', 'value': business_discovery.username},
-                {'property': 'name', 'title': 'Profile Name', 'value': business_discovery.name},
-                {'property': 'followers', 'title': 'Total followers', 'value': business_discovery.followers_count},
-                {'property': 'following', 'title': 'Total following', 'value': business_discovery.follows_count},
-                {'property': 'biography', 'title': 'Biography', 'value': business_discovery.biography},
-                {'property': 'website', 'title': 'Website', 'value': business_discovery.website},
-                {'property': 'media_count', 'title': 'Total posts', 'value': business_discovery.media_count}
-              ]
-            }
-            res.status(200).send({type: 'SUCCESS', data: result})
+            const response = await axios.get(`https://graph.facebook.com/v15.0/${requesterPageId}?fields=business_discovery.username(${businessProfileName})%7Bfollowers_count%2Cmedia_count%2Cbiography%2Cname%2Cusername%2Cfollows_count%2Cwebsite%2Cprofile_picture_url%7D&access_token=${accessToken}`);            
+            res.status(200).send({type: 'SUCCESS', data: response.data.business_discovery})
             return
           })
         }
