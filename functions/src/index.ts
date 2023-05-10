@@ -7,6 +7,7 @@ import axios from "axios";
 import { environment } from "./helper/helper";
 import cors from 'cors';
 import { getCanvaUser } from "./helper/jwt_verification";
+import { FieldValue } from '@google-cloud/firestore'
 
 admin.initializeApp()
 
@@ -19,8 +20,8 @@ export const createUser = auth.user().onCreate((user) => {
   const userRef = admin.firestore().collection("users").doc(uid)
   return userRef.create({
     email: email,
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp()
   })
 })
 
