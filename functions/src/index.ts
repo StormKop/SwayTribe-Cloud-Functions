@@ -285,58 +285,54 @@ export const redirectCanvaToSwayTribe = runWith({secrets: ['CANVA_SECRET']}).htt
 
 export const getBusinessAccountDetails = runWith({secrets: ['CANVA_APP_ID']}).https.onRequest(async (req, res) => {
   corsHandler(req, res, async () => {
-    try {
-      // Get Canva app ID and return error if there is no Canva app ID
-      // Check app ID on server start
-      const canvaAppId = process.env.CANVA_APP_ID
-      if(canvaAppId === undefined) {
-        res.status(200).send({type: 'FAIL', message: 'Missing Canva app ID'})
-        return
-      }
-
-      // Verify JWT and get Canva user ID and brand ID
-      const user = await getCanvaUser(req, canvaAppId)
-  
-      const canvaUserId = user.userId
-      const canvaBrandId = user.brandId
-      const businessProfileName = req.query.profileName
-      const requesterPageId = req.query.requesterPageId
-  
-      if (businessProfileName === undefined || requesterPageId === undefined) {
-        res.status(200).send({type: 'FAIL', message: 'Missing request body'})
-        return
-      }
-  
-      //Check if the requesting Canva User ID is linked to an existing SwayTribe account
-      const userRef = admin.firestore().collection("users")
-      const snapshot = await userRef.where('canvaUserId', '==', canvaUserId).where('canvaBrandIds','array-contains',canvaBrandId).get()
-  
-      if(snapshot.empty) {
-        // Return false if there is not user linked
-        console.log(`There are no Canva users that match canva user ID ${canvaUserId} and brand ID ${canvaBrandId}`)
-        res.status(200).send({type: 'FAIL', message: 'There are no Canva users matching this request'})
-        return
-      } else {
-        // Log any cases where there are more than one user with the same canvaUserId and canvaBrandId
-        if(snapshot.docs.length > 1) {
-          console.log(`There are multiple users with the same canva user ID ${canvaUserId}`)
-          res.status(200).send({type: 'FAIL', message: 'There are multiple Canva users matching this request'})
+    // Creating a new request object with the Canva user data
+    const extendedReq = Object.create(req) as ExtendedFirebaseRequest
+    jwtMiddleware(extendedReq, res, async () => {
+      try {
+        // Verify JWT and get Canva user ID and brand ID
+        const user = extendedReq.canva
+    
+        const canvaUserId = user.userId
+        const canvaBrandId = user.brandId
+        const businessProfileName = req.query.profileName
+        const requesterPageId = req.query.requesterPageId
+    
+        if (businessProfileName === undefined || requesterPageId === undefined) {
+          res.status(200).send({type: 'FAIL', message: 'Missing request body'})
+          return
+        }
+    
+        //Check if the requesting Canva User ID is linked to an existing SwayTribe account
+        const userRef = admin.firestore().collection("users")
+        const snapshot = await userRef.where('canvaUserId', '==', canvaUserId).where('canvaBrandIds','array-contains',canvaBrandId).get()
+    
+        if(snapshot.empty) {
+          // Return false if there is not user linked
+          console.log(`There are no Canva users that match canva user ID ${canvaUserId} and brand ID ${canvaBrandId}`)
+          res.status(200).send({type: 'FAIL', message: 'There are no Canva users matching this request'})
           return
         } else {
-          snapshot.docs.forEach(async (doc: admin.firestore.DocumentData) => {
-            const accessToken = doc.data().access_token_ig
-            const response = await axios.get(`https://graph.facebook.com/v15.0/${requesterPageId}?fields=business_discovery.username(${businessProfileName})%7Bfollowers_count%2Cmedia_count%2Cbiography%2Cname%2Cusername%2Cfollows_count%2Cwebsite%2Cprofile_picture_url%7D&access_token=${accessToken}`);            
-            res.status(200).send({type: 'SUCCESS', data: response.data.business_discovery})
+          // Log any cases where there are more than one user with the same canvaUserId and canvaBrandId
+          if(snapshot.docs.length > 1) {
+            console.log(`There are multiple users with the same canva user ID ${canvaUserId}`)
+            res.status(200).send({type: 'FAIL', message: 'There are multiple Canva users matching this request'})
             return
-          })
+          } else {
+            snapshot.docs.forEach(async (doc: admin.firestore.DocumentData) => {
+              const accessToken = doc.data().access_token_ig
+              const response = await axios.get(`https://graph.facebook.com/v15.0/${requesterPageId}?fields=business_discovery.username(${businessProfileName})%7Bfollowers_count%2Cmedia_count%2Cbiography%2Cname%2Cusername%2Cfollows_count%2Cwebsite%2Cprofile_picture_url%7D&access_token=${accessToken}`);            
+              res.status(200).send({type: 'SUCCESS', data: response.data.business_discovery})
+              return
+            })
+          }
         }
+      } catch (error) {
+        // Return error if any
+        console.log(`Error getting business account details`, error)
+        res.status(401).send({type: 'FAIL', message: error})
+        return
       }
-    } catch (error) {
-      // Return error if any
-      console.log(`Error getting business account details`, error)
-      res.status(401).send({type: 'FAIL', message: error})
-      return
-    }
+    })
   })
 })
 
@@ -400,15 +396,8 @@ export const getMediaFromIGUser = runWith({secrets: ['CANVA_APP_ID']}).https.onR
     const extendedReq = Object.create(req) as ExtendedFirebaseRequest
     jwtMiddleware(extendedReq, res, async () => {
       try {
-        // Get Canva app ID and return error if there is no Canva app ID
-        const canvaAppId = process.env.CANVA_APP_ID
-        if(canvaAppId === undefined) {
-          res.status(200).send({type: 'FAIL', message: 'Missing Canva app ID'})
-          return
-        }
-
         // Verify JWT and get Canva user ID and brand ID
-        const user = await getCanvaUser(req, canvaAppId)
+        const user = extendedReq.canva
     
         const canvaUserId = user.userId
         const canvaBrandId = user.brandId
