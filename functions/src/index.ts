@@ -78,7 +78,7 @@ export const saveUserAccessToken = runWith({secrets: ['FACEBOOK_CLIENT_ID','FACE
     
     return userRef.update({
       access_token_ig: longLivedToken,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      updatedAt: FieldValue.serverTimestamp()
     })
   } catch (error) {
     logger.log(error)
@@ -121,14 +121,14 @@ export const linkUserToCanva = https.onCall(async (data, context) => {
           await userDoc.set({
             canvaUserId: canvaUserId,
             canvaBrandIds: [canvaBrandId],
-            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            updatedAt: FieldValue.serverTimestamp()
           }, mergeOptions)
           return {success: true, state: canvaState}
         } else {
           await userDoc.set({
             canvaUserId: canvaUserId,
             canvaBrandIds: admin.firestore.FieldValue.arrayUnion(canvaBrandId),
-            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            updatedAt: FieldValue.serverTimestamp()
           }, mergeOptions)
           return {success: true, state: canvaState}
         }
