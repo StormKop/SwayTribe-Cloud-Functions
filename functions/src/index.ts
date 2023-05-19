@@ -1,12 +1,10 @@
 import { auth, https, logger, runWith } from "firebase-functions";
 import * as admin from "firebase-admin"
 import { SetOptions } from "firebase-admin/firestore";
-import { isValidPostRequest, isValidRedirectUrl } from "./helper/canva-signature-helper";
-import QueryString from "qs";
 import axios from "axios";
 import { environment } from "./helper/helper";
 import cors from 'cors';
-import { createJwtMiddleware, ExtendedFirebaseRequest } from "./helper/jwt_verification";
+import { createJwtMiddleware, ExtendedFirebaseRequest, getTokenFromQueryString } from "./helper/canva_jwt_verification";
 import { FieldValue } from '@google-cloud/firestore'
 import dotenv from 'dotenv';
 
@@ -89,11 +87,9 @@ export const saveUserAccessToken = runWith({secrets: ['FACEBOOK_CLIENT_ID','FACE
 })
 
 export const linkUserToCanva = https.onCall(async (data, context) => {
-  const canvaSignatures = data.signatures
-  const canvaBrandId = data.brand
+  const canvaUserId = data.canvaUserId
+  const canvaBrandId = data.canvaBrandId
   const canvaState = data.state
-  const canvaUserId = data.user
-  const canvaTime = data.time
   
   // Check if user is authenticated else return an error
   if (!context.auth) {
@@ -102,7 +98,7 @@ export const linkUserToCanva = https.onCall(async (data, context) => {
 
   const uid = context.auth.uid
 
-  if (canvaUserId === undefined || canvaBrandId === undefined || canvaSignatures === undefined || canvaState === undefined || canvaTime === undefined) {
+  if (canvaUserId === undefined || canvaBrandId === undefined || canvaState === undefined) {
     return {success: false, state: canvaState, error: 'Missing request body'}
   }
   
@@ -146,7 +142,7 @@ export const linkUserToCanva = https.onCall(async (data, context) => {
   }
 })
 
-export const isUserLinkedToCanva = runWith({secrets: ['CANVA_APP_ID']}).https.onRequest(async (req, res) => {
+export const isUserLinkedToCanva = https.onRequest(async (req, res) => {
   corsHandler(req, res, async () => {
     // Creating a new request object with the Canva user data
     const extendedReq = Object.create(req) as ExtendedFirebaseRequest
@@ -183,107 +179,83 @@ export const isUserLinkedToCanva = runWith({secrets: ['CANVA_APP_ID']}).https.on
   })
 })
 
-export const unlinkUserFromCanva = runWith({secrets: ['CANVA_SECRET']}).https.onRequest(async (req, res) => {
-
-  const canva_secret = process.env.CANVA_SECRET
-  if(canva_secret === undefined) {
-    res.status(401).send({type: 'FAIL', message: 'Secret key not found'})
-    return
-  }
-
-  if (req.method === 'POST') {
-    if(!isValidPostRequest(canva_secret, req, req.path)) {
-      res.status(401).send({type: 'FAIL', message: 'Failed signature test'})
-      return
-    }
-  } else {
-    res.status(401).send({type: 'FAIL', message: 'Invalid request method type'})
-    return
-  }
-
-  const canvaUserId: string = req.body.user
-  const canvaBrandId: string = req.body.brand
-
+export const unlinkUserFromCanva = https.onRequest(async (req, res) => {
   if (!req.url.includes('/configuration/delete')) {
     res.status(200).send({type: "FAIL", message: "This is not a valid URL for this trigger"})
     return
   }
 
-  if (canvaUserId === undefined && canvaBrandId === undefined) {
-    res.status(200).send({type: "FAIL", message: "Missing request body"})
-    return
-  }
-
-  try {
-    //Find Swaytribe user for Canva user ID
-    const userRef = admin.firestore().collection("users")
-    const snapshot = await userRef.where('canvaUserId', '==', canvaUserId).where('canvaBrandIds','array-contains',canvaBrandId).get()
-
-    if(snapshot.empty) {
-      // Return success if snapshot is empty, ideally this should not happen since a user should be using this link via Canva only
-      console.log(`No Swaytribe user found for Canva user ID ${canvaUserId}`)
-      res.status(200).send({type: "SUCCESS"})
-      return
-    } else {
-      if (snapshot.docs.length > 1) {
-        // Log any cases where there are more than one user with the same canvaUserId and canvaBrandId
-        console.log(`There are multiple users with the same canva user ID ${canvaUserId}`)
+  corsHandler(req, res, async () => {
+    const extendedReq = Object.create(req) as ExtendedFirebaseRequest
+    jwtMiddleware(extendedReq, res, async () => {
+      // Get Canva user from request
+      const user = extendedReq.canva
+      try {
+        //Find Swaytribe user for Canva user ID
+        const userRef = admin.firestore().collection("users")
+        const snapshot = await userRef.where('canvaUserId', '==', user.userId).where('canvaBrandIds','array-contains', user.brandId).get()
+    
+        if(snapshot.empty) {
+          // Return success if snapshot is empty, ideally this should not happen since a user should be using this link via Canva only
+          console.log(`No Swaytribe user found for Canva user ID ${user.userId}`)
+          res.status(200).send({type: "SUCCESS"})
+          return
+        } else {
+          if (snapshot.docs.length > 1) {
+            // Log any cases where there are more than one user with the same canvaUserId and canvaBrandId
+            console.log(`There are multiple users with the same canva user ID ${user.userId}`)
+          }
+    
+          //TODO: This should only unlink the user from the one brand ID only!!!
+          snapshot.docs.forEach( async (doc) => {
+            // Unlink all Canva identifiers from this user
+            await doc.ref.update({
+              canvaUserId: '', 
+              canvaBrandIds: [],
+              updatedAt: FieldValue.serverTimestamp()
+            })
+          })
+    
+          // Return success if Swaytribe user is successfully unlinked from Canva
+          res.status(200).send({type: "SUCCESS"})
+          return
+        }
+    
+      } catch (error) {
+        // Return error if any
+        console.log(error)
+        res.status(500).send({error: 'Error unlinking Canva user from SwayTribe'})
+        return
       }
+    })
+  })
+})
 
-      //TODO: This should only unlink the user from the one brand ID only!!!
-      snapshot.docs.forEach( async (doc) => {
-        // Unlink all Canva identifiers from this user
-        await doc.ref.update({
-          canvaUserId: '', 
-          canvaBrandIds: [],
-          updatedAt: admin.firestore.FieldValue.serverTimestamp()
-        })
+export const redirectCanvaToSwayTribe = https.onRequest(async (req, res) => {
+  corsHandler(req, res, async () => {
+    // Creating a new request object with the Canva user data
+    const extendedReq = Object.create(req) as ExtendedFirebaseRequest
+    const redirectJwtMiddleware = createJwtMiddleware(getTokenFromQueryString)
+    redirectJwtMiddleware(extendedReq, res, async () => {
+      const stringifiedParams = new URLSearchParams({
+        canvaUserId: extendedReq.canva.userId as string,
+        canvaBrandId: extendedReq.canva.brandId as string,
+        state: extendedReq.query.state as string,
       })
-
-      // Return success if Swaytribe user is successfully unlinked from Canva
-      res.status(200).send({type: "SUCCESS"})
-      return
-    }
-
-  } catch (error) {
-    // Return error if any
-    console.log(error)
-    res.status(500).send({error: 'Error unlinking Canva user from SwayTribe'})
-    return
-  }
+      const currentEnvironment = environment()
+      if (currentEnvironment === 'DEV') {
+        res.status(302).redirect(`http://localhost:3000/authenticate/canva?${stringifiedParams}`)
+        return
+      } else if (currentEnvironment === 'PROD') {
+        res.status(200).redirect(`https://www.swaytribe.com/authenticate/canva?${stringifiedParams}`)
+      } else {
+        res.status(401).send({type: 'FAIL', message: 'Invalid environment'})
+      }
+    })
+  })
 })
 
-export const redirectCanvaToSwayTribe = runWith({secrets: ['CANVA_SECRET']}).https.onRequest(async (req, res) => {
-
-  const canva_secret = process.env.CANVA_SECRET
-  if(canva_secret === undefined) {
-    res.status(401).send({type: 'FAIL', message: 'Secret key not found'})
-    return
-  }
-
-  if (req.method === 'GET') {
-    if(!isValidRedirectUrl(canva_secret, req)) {
-      res.status(401).send({type: 'FAIL', message: 'Failed signature test'})
-      return
-    }
-  } else {
-    res.status(401).send({type: 'FAIL', message: 'Invalid request method type'})
-    return
-  }
-  
-  const stringifiedParams = QueryString.stringify(req.query)
-  const currentEnvironment = environment()
-  if (currentEnvironment === 'DEV') {
-    res.status(302).redirect(`http://localhost:3000/authenticate/canva?${stringifiedParams}`)
-    return
-  } else if (currentEnvironment === 'PROD') {
-    res.status(200).redirect(`https://www.swaytribe.com/authenticate/canva?${stringifiedParams}`)
-  } else {
-    res.status(401).send({type: 'FAIL', message: 'Invalid environment'})
-  }
-})
-
-export const getBusinessAccountDetails = runWith({secrets: ['CANVA_APP_ID']}).https.onRequest(async (req, res) => {
+export const getBusinessAccountDetails = https.onRequest(async (req, res) => {
   corsHandler(req, res, async () => {
     // Creating a new request object with the Canva user data
     const extendedReq = Object.create(req) as ExtendedFirebaseRequest
@@ -336,7 +308,7 @@ export const getBusinessAccountDetails = runWith({secrets: ['CANVA_APP_ID']}).ht
   })
 })
 
-export const canvaGetAllInstagramPages = runWith({secrets: ['CANVA_APP_ID']}).https.onRequest(async (req, res) => {
+export const canvaGetAllInstagramPages = https.onRequest(async (req, res) => {
   corsHandler(req, res, async () => {
     // Creating a new request object with the Canva user data
     const extendedReq = Object.create(req) as ExtendedFirebaseRequest
@@ -390,7 +362,7 @@ export const canvaGetAllInstagramPages = runWith({secrets: ['CANVA_APP_ID']}).ht
   })
 })
 
-export const getMediaFromIGUser = runWith({secrets: ['CANVA_APP_ID']}).https.onRequest(async (req, res) => {
+export const getMediaFromIGUser = https.onRequest(async (req, res) => {
   corsHandler(req, res, async () => {
     // Creating a new request object with the Canva user data
     const extendedReq = Object.create(req) as ExtendedFirebaseRequest
