@@ -7,6 +7,7 @@ import cors from 'cors';
 import { createJwtMiddleware, ExtendedFirebaseRequest, getTokenFromQueryString } from "./helper/canva_jwt_verification";
 import { FieldValue } from '@google-cloud/firestore'
 import dotenv from 'dotenv';
+import Stripe from "stripe";
 
 dotenv.config();
 admin.initializeApp()
@@ -23,6 +24,47 @@ export const createUser = auth.user().onCreate((user) => {
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp()
   })
+})
+
+export const getSubscriptionStatus = https.onCall(async (data, context) => {
+  // Check if user is authenticated else return an error
+  if (!context.auth) {
+    throw new https.HttpsError('unauthenticated', 'User not authenticated')
+  }
+  const uid = context.auth.uid
+
+  // Get user details from Firestore
+  const userRef = admin.firestore().collection("users").doc(uid)
+  const userDoc = await userRef.get()
+
+  if (!userDoc.exists) {
+    throw new https.HttpsError('not-found', 'User not found')
+  }
+
+  const userData = userDoc.data()
+  if (userData === undefined) {
+    throw new https.HttpsError('internal', 'No user data found in Firestore')
+  }
+
+  const stripeSubscriptionStatus = userData.stripeSubscriptionStatus
+  const stripeCustomerId = userData.stripeCustomerId
+
+  if (stripeCustomerId === undefined || stripeCustomerId === '') {
+    return {
+      success: false,
+      status: 'no-stripe-customer-id'
+    }
+  } else if (stripeSubscriptionStatus === 'active' || stripeSubscriptionStatus === 'trialing') {
+    return {
+      success: true,
+      status: 'active'
+    }
+  } else {
+    return {
+      success: false,
+      status: stripeSubscriptionStatus
+    }
+  }
 })
 
 // Add new user to Swaytribe waitlist
@@ -444,7 +486,7 @@ export const getAllInstagramAccounts = https.onCall(async (data, context) => {
       throw new https.HttpsError('not-found', 'There is no data found for this user')
     } else {
       // Get the users IG access token from the Firestore document data
-      if (data.access_token_ig === undefined) {
+      if (data.access_token_ig === undefined || data.access_token_ig === '') {
         throw new https.HttpsError('failed-precondition', 'No Instagram account linked to this SwayTribe user')
       }
       const accessToken = data.access_token_ig
@@ -495,3 +537,91 @@ const getLongLivedToken = async (shortLivedToken: string, clientID: string, clie
   // const neverExpireToken = neverExpireTokenResponse.data.data[0].access_token
   return longLivedToken
 }
+
+export const stripeWebhook = runWith({secrets: ['STRIPE_TEST_SECRET', 'STRIPE_TEST_WEBHOOK_SECRET', 'STRIPE_SECRET', 'STRIPE_WEBHOOK_SECRET']}).https.onRequest(async (req, res) => {
+  // Get Stripe secret key and webhook secret based on environment
+  const currentEnvironment = environment()
+  const stripeSecret = currentEnvironment === 'PROD' ? process.env.STRIPE_SECRET : process.env.STRIPE_TEST_SECRET
+  const stripeWebhookSecret = currentEnvironment === 'PROD' ? process.env.STRIPE_WEBHOOK_SECRET : process.env.STRIPE_TEST_WEBHOOK_SECRET
+
+  // Return an error if Stripe secret or webhook secret is not found
+  if (stripeSecret === undefined) {
+    res.status(500).json({success: false, error: 'Stripe secret not found'})
+    return
+  }
+
+  if (stripeWebhookSecret === undefined) {
+    res.status(500).json({success: false, error: 'Stripe webhook secret not found'})
+    return
+  }
+  
+  // Create a new Stripe instance
+  const stripe = new Stripe(stripeSecret, {
+    apiVersion: '2022-11-15',
+  })
+
+  // Get the event from the request and verify the signature
+  const payload = req.rawBody
+  const sig = req.headers['stripe-signature'] as string
+  const endpointSecret = stripeWebhookSecret
+
+  let event: Stripe.Event
+  try {
+    event = stripe.webhooks.constructEvent(payload, sig, endpointSecret) 
+  } catch (error) {
+    console.log(error)
+    res.status(400).json({success: false, error: `Webhook Error: ${error}`})
+    return
+  }
+
+  switch (event.type) {
+    case 'customer.subscription.created':
+    case 'customer.subscription.updated':
+    case 'customer.subscription.deleted':
+    case 'customer.subscription.paused':
+      // Get the subscription object
+      const subscription = event.data.object as Stripe.Subscription
+      const subscriptionId = subscription.id
+      const subscriptionStatus = subscription.status
+      // Get the customer email
+      const customerId = subscription.customer as string
+      const customer = await stripe.customers.retrieve(customerId) as Stripe.Customer
+      const customerEmail = customer.email
+      // Get the Product details from the Price object in the Subscription object
+      const price = subscription.items.data[0].price as Stripe.Price
+      const productId = price.product as string
+      const product = await stripe.products.retrieve(productId)
+      const productName = product.name
+      // Get the user role based on the product name -- this will be useful in future when we have more products within the subscription
+      let userRole: string
+      if (productName === 'Pro') {
+        userRole = 'pro'
+      } else {
+        res.status(400).json({success: false, error: `Product name ${productName} not found. Please check if this product exists in code`})
+        return
+      }
+      // Get the user document from Firestore
+      const userSnapshot = admin.firestore().collection('users').where('email', '==', customerEmail)
+      const userRef = await userSnapshot.get()
+      // Return an error if user is not found
+      if (userRef.empty) {
+        res.status(400).json({success: false, error: `User with email ${customerEmail} not found`})
+        return
+      }
+      const userDoc = userRef.docs[0]
+
+      // Update the user document with the relevant Stripe subscription details
+      await userDoc.ref.update({
+        role: userRole,
+        stripeCustomerId: customerId,
+        stripeSubscriptionId: subscriptionId,
+        stripeSubscriptionStatus: subscriptionStatus,
+        updatedAt: FieldValue.serverTimestamp()
+      })
+    default:
+      break
+  }
+  
+  res.json({success: true})
+  return
+})

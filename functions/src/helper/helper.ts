@@ -1,6 +1,6 @@
 type Environment = 'DEV' | 'PROD'
 
-export function environment(): Environment {
+export const environment = (): Environment => {
   if (process.env.FUNCTIONS_EMULATOR == 'true') {
     return 'DEV'
   } else {
