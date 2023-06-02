@@ -333,7 +333,19 @@ export const getBusinessAccountDetails = https.onRequest(async (req, res) => {
             return
           } else {
             snapshot.docs.forEach(async (doc: admin.firestore.DocumentData) => {
-              const accessToken = doc.data().access_token_ig
+              const data = doc.data()
+              const accessToken = data.access_token_ig
+              // const stripeSubscriptionStatus = data.stripeSubscriptionStatus
+              // if (stripeSubscriptionStatus !== 'active' || stripeSubscriptionStatus !== 'trialing') {
+              //   console.log(`This user does not have an active subscription`)
+              //   res.status(200).send({type: 'FAIL', message: 'This user does not have an active subscription'})
+              //   return
+              // }
+              if (accessToken === undefined || accessToken === '') {
+                console.log(`This user has not connected their Instagram account to SwayTribe`)
+                res.status(200).send({type: 'FAIL', message: 'No Instagram account linked to this SwayTribe user'})
+                return
+              }
               const response = await axios.get(`https://graph.facebook.com/v15.0/${requesterPageId}?fields=business_discovery.username(${businessProfileName})%7Bfollowers_count%2Cmedia_count%2Cbiography%2Cname%2Cusername%2Cfollows_count%2Cwebsite%2Cprofile_picture_url%7D&access_token=${accessToken}`);            
               res.status(200).send({type: 'SUCCESS', data: response.data.business_discovery})
               return
@@ -375,8 +387,15 @@ export const canvaGetAllInstagramPages = https.onRequest(async (req, res) => {
             return
           } else {
             snapshot.docs.forEach(async (doc: admin.firestore.DocumentData) => {
-              const accessToken = doc.data().access_token_ig
-              if (accessToken === undefined) {
+              const data = doc.data()
+              const accessToken = data.access_token_ig
+              // const stripeSubscriptionStatus = data.stripeSubscriptionStatus
+              // if (stripeSubscriptionStatus !== 'active' || stripeSubscriptionStatus !== 'trialing') {
+              //   console.log(`This user does not have an active subscription`)
+              //   res.status(200).send({type: 'FAIL', message: 'This user does not have an active subscription'})
+              //   return
+              // }
+              if (accessToken === undefined || accessToken === '') {
                 console.log(`This user has not connected their Instagram account to SwayTribe`)
                 res.status(200).send({type: 'FAIL', message: 'No Instagram account linked to this SwayTribe user'})
                 return
@@ -440,7 +459,19 @@ export const getMediaFromIGUser = https.onRequest(async (req, res) => {
             return
           } else {
             snapshot.docs.forEach(async (doc: admin.firestore.DocumentData) => {
-              const accessToken = doc.data().access_token_ig
+              const data = doc.data()
+              const accessToken = data.access_token_ig
+              // const stripeSubscriptionStatus = data.stripeSubscriptionStatus
+              // if (stripeSubscriptionStatus !== 'active' || stripeSubscriptionStatus !== 'trialing') {
+              //   console.log(`This user does not have an active subscription`)
+              //   res.status(200).send({type: 'FAIL', message: 'This user does not have an active subscription'})
+              //   return
+              // }
+              if (accessToken === undefined || accessToken === '') {
+                console.log(`This user has not connected their Instagram account to SwayTribe`)
+                res.status(200).send({type: 'FAIL', message: 'No Instagram account linked to this SwayTribe user'})
+                return
+              }
               const response = await axios.get(`https://graph.facebook.com/v15.0/${requesterPageId}?fields=business_discovery.username(${businessProfileName})%7Bmedia%7Btimestamp%2Cpermalink%2Cmedia_url%2Cmedia_product_type%2C%20media_type%2Ccaption%2Ccomments_count%2Clike_count%7D%7D&access_token=${accessToken}`);
               const business_discovery = response.data.business_discovery.media
               res.status(200).send({type: 'SUCCESS', data: business_discovery})
