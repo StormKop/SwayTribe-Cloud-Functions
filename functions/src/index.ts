@@ -74,12 +74,12 @@ export const getSubscriptionStatus = https.onCall(async (_data, context) => {
 // Add new user to Swaytribe waitlist
 export const addToWaitlist = runWith({secrets: ['MAILERLITE_API_KEY']}).https.onCall(async (data, _) => {
   // Get email address
-  const email = data.email
+  const email = data.email as string
 
   // Return error if there is no email addrress or if the email address is just a blank string
   if (email === undefined || email.length === 0) {
-    console.log(`Email field is missing or empty`)
-    throw new https.HttpsError('failed-precondition', 'Email field is missing or empty')
+    console.log('No email address found')
+    throw new https.HttpsError('invalid-argument', 'No email address found')
   }
 
   //Check if Mailerlite API key is found
@@ -115,16 +115,19 @@ export const addToWaitlist = runWith({secrets: ['MAILERLITE_API_KEY']}).https.on
         'Accept': 'application/json'
       }
     })
-  } catch (error) {
-    console.log(error)
-    throw new https.HttpsError('unknown', 'Failed to add user to Mailerlite', error)
+  } catch (error: any) {
+    const errorMessage = error.response.data.message
+    console.log(errorMessage)
+    throw new https.HttpsError('internal', `Failed to add user to Mailerlite: ${errorMessage}`)
   }
 
   // Add user to waitlist if they are not in the waitlist
-  return await subscriberDoc.create({
+  await subscriberDoc.create({
     email: email,
     createdAt: FieldValue.serverTimestamp()
   })
+
+  return {success: true, message: 'User added to waitlist'}
 })
 
 export const saveUserAccessToken = runWith({secrets: ['FACEBOOK_CLIENT_ID','FACEBOOK_CLIENT_SECRET']}).https.onCall(async (data, context) => {
