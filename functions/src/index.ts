@@ -29,6 +29,7 @@ export const createUser = auth.user().onCreate((user) => {
 export const getSubscriptionStatus = https.onCall(async (_data, context) => {
   // Check if user is authenticated
   if (!context.auth) {
+    console.log('User not authenticated')
     throw new https.HttpsError('unauthenticated', 'User not authenticated')
   }
   const uid = context.auth.uid
@@ -39,13 +40,15 @@ export const getSubscriptionStatus = https.onCall(async (_data, context) => {
 
   // Check if user document exists
   if (!userDoc.exists) {
-    throw new https.HttpsError('not-found', 'User not found')
+    console.log(`There are no SwayTribe users that match the incoming ${uid}`)
+    throw new https.HttpsError('not-found', 'User not found in database')
   }
 
   // Check if user document contains any data
   const userData = userDoc.data()
   if (userData === undefined) {
-    throw new https.HttpsError('internal', 'No user data found in Firestore')
+    console.log(`There is no data found for this user ${uid}`)
+    throw new https.HttpsError('internal', 'User found in database but user data is missing')
   }
 
   // Get Stripe subscription status and customer ID
@@ -55,17 +58,14 @@ export const getSubscriptionStatus = https.onCall(async (_data, context) => {
   // Return error if Stripe subscription status or customer ID is not found
   if (stripeCustomerId === undefined || stripeCustomerId === '') {
     return {
-      success: false,
       status: 'no-stripe-customer-id'
     }
   } else if (stripeSubscriptionStatus === 'active' || stripeSubscriptionStatus === 'trialing') {
     return {
-      success: true,
       status: 'active'
     }
   } else {
     return {
-      success: false,
       status: stripeSubscriptionStatus
     }
   }
