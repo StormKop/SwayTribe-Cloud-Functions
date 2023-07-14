@@ -225,7 +225,7 @@ export const linkUserToCanva = https.onCall(async (data, context) => {
   const uid = context.auth.uid
 
   if (canvaUserId === undefined || canvaBrandId === undefined || canvaState === undefined) {
-    return {success: false, state: canvaState, error: 'Missing request body'}
+    return {success: false, state: canvaState, error: 'Missing Canva request body'}
   }
   
   try {
