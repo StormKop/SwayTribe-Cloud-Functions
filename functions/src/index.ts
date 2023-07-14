@@ -1,4 +1,4 @@
-import { auth, https, logger, runWith } from "firebase-functions";
+import { auth, https, runWith } from "firebase-functions";
 import * as admin from "firebase-admin"
 import { SetOptions } from "firebase-admin/firestore";
 import axios from "axios";
