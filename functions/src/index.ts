@@ -38,7 +38,7 @@ export const createUser = auth.user().onCreate(async (user) => {
 })
 
 export const getSubscriptionStatus = https.onCall(async (_data, context) => {
-  // Check if user is authenticated
+  // Check if user is authenticated and retrieve the user ID
   if (!context.auth) {
     console.log('User not authenticated')
     throw new https.HttpsError('unauthenticated', 'User not authenticated')
@@ -585,49 +585,56 @@ export const getMediaFromIGUser = https.onRequest(async (req, res) => {
 })
 
 // Get's all the users Instagram accounts that will be shown in the website /dashboard
-export const getAllInstagramAccounts = https.onCall(async (_data, context) => {
-
-  // Check if user is authenticated else return an error
+export const getAllInstagramAccounts = https.onCall(async (_, context) => {
+  // Check if user is authenticated and retrieve the user ID
   if (!context.auth) {
-    throw new https.HttpsError('unauthenticated', 'User not authenticated.')
+    console.log('User not authenticated')
+    throw new https.HttpsError('unauthenticated', 'User not authenticated')
   }
-
-  // Get user UID
   const uid = context.auth.uid
 
-  // Get users document from Firestore
-  const userRefDoc = admin.firestore().collection("users").doc(uid)
-  const snapshot = await userRefDoc.get()
-  
+  // Get user details from Firestore
+  const userRef = admin.firestore().collection("users").doc(uid)
+  const userDoc = await userRef.get()
+
   // Check if user document exists
-  if(!snapshot.exists) {
+  if (!userDoc.exists) {
     console.log(`There are no SwayTribe users that match the incoming ${uid}`)
-    throw new https.HttpsError('not-found', 'User is not found.')
+    throw new https.HttpsError('not-found', 'User not found in database')
   }
-  
-  // Get the document data
-  const data = snapshot.data()
-  // Return an error of document is empty, this likely means the user is not created or the onCreate user data did not work
-  if (data === undefined) {
-    throw new https.HttpsError('not-found', 'There is no data found for this user')
+
+  // Check if user document contains any data
+  const userData = userDoc.data()
+  if (userData === undefined) {
+    console.log(`There is no data found for this user ${uid}`)
+    throw new https.HttpsError('internal', 'User found in database but user data is missing')
   }
+
   // Get the users IG access token from the Firestore document data
-  if (data.access_token_ig === undefined || data.access_token_ig === '') {
+  const accessToken = userData.access_token_ig
+  if (accessToken === undefined || accessToken === '') {
+    console.log('No Instagram access token found for this user. This user has not connected their Instagram account to SwayTribe')
     throw new https.HttpsError('failed-precondition', 'No Instagram account linked to this SwayTribe user')
   }
-  const accessToken = data.access_token_ig
-  // Make a call to IG to get all of the users IG accounts
-  const response = await axios.get(`https://graph.facebook.com/v15.0/me/accounts?fields=instagram_business_account%7Bid%2Cname%2Cusername%2Cfollowers_count%2Cprofile_picture_url%7D&access_token=${accessToken}`);
-  // Loop through the results and create an array of IG accounts
-  const accounts = response.data.data.map((account: any) => ({
-    'id': account.instagram_business_account.id,
-    'name': account.instagram_business_account.name,
-    'username': account.instagram_business_account.username,
-    'followers': account.instagram_business_account.followers_count,
-    'profile_picture_url': account.instagram_business_account.profile_picture_url
-  }))
-  // Return the IG accounts for consumption on the client side
-  return accounts
+  
+  try {
+    // Make a call to IG to get all of the users IG accounts
+    const response = await axios.get(`https://graph.facebook.com/v15.0/me/accounts?fields=instagram_business_account%7Bid%2Cname%2Cusername%2Cfollowers_count%2Cprofile_picture_url%7D&access_token=${accessToken}`);
+    // Loop through the results and create an array of IG accounts
+    const accounts = response.data.data.map((account: any) => ({
+      'id': account.instagram_business_account.id,
+      'name': account.instagram_business_account.name,
+      'username': account.instagram_business_account.username,
+      'followers': account.instagram_business_account.followers_count,
+      'profile_picture_url': account.instagram_business_account.profile_picture_url
+    }))
+    // Return the IG accounts for consumption on the client side
+    return accounts
+  } catch (error: any) {
+    const errorMessage = error.response.data.error.message
+    console.log(errorMessage)
+    throw new https.HttpsError('unknown', `Failed to get Instagram accounts: ${errorMessage}`)
+  }
 })
 
 export const stripeWebhook = runWith({secrets: ['STRIPE_TEST_SECRET', 'STRIPE_TEST_WEBHOOK_SECRET', 'STRIPE_SECRET', 'STRIPE_WEBHOOK_SECRET']}).https.onRequest(async (req, res) => {
