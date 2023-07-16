@@ -14,17 +14,6 @@ admin.initializeApp()
 const corsHandler = cors({ origin: ['https://app-aafqj9tmlb4.canva-apps.com'] });
 const jwtMiddleware = createJwtMiddleware()
 
-export const sendSupportEmail = https.onCall(async (data, context) => {
-  // const name = data.name
-  // const message = data.message
-
-  if (!context.auth) {
-    throw new https.HttpsError('unauthenticated', 'User not authenticated')
-  }
-
-  return {success: true}
-})
-
 export const createUser = auth.user().onCreate(async (user) => {
   const uid = user.uid
   const email = user.email
