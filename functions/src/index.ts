@@ -356,7 +356,7 @@ export const redirectCanvaToSwayTribe = https.onRequest(async (req, res) => {
       const canvaBrandId = extendedReq.canva.brandId as string
       const canvaState = extendedReq.query.state as string
 
-      if(canvaUserId === undefined || canvaBrandId === undefined || state === undefined) {
+      if(canvaUserId === undefined || canvaBrandId === undefined || canvaState === undefined) {
         res.status(401).send({type: 'FAIL', message: 'Missing Canva user ID, brand ID or state'})
         return
       }
