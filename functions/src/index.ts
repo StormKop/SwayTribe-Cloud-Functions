@@ -293,9 +293,12 @@ export const isUserLinkedToCanva = https.onRequest(async (req, res) => {
         return
       } catch (error) {
         // Return error if any
-        console.log(error)
-        if(error instanceof Error) {
+        if (error instanceof Error) {
+          console.log(error.message)
           res.status(401).send({isAuthenticated: false, message: error.message})
+        } else {
+          console.log(error)
+          res.status(401).send({isAuthenticated: false, message: error})
         }
         return
       }
@@ -305,6 +308,7 @@ export const isUserLinkedToCanva = https.onRequest(async (req, res) => {
 
 export const unlinkUserFromCanva = https.onRequest(async (req, res) => {
   if (!req.url.includes('/configuration/delete')) {
+    console.log(`This is not a valid URL for this trigger`)
     res.status(200).send({type: "FAIL", message: "This is not a valid URL for this trigger"})
     return
   }
@@ -322,15 +326,13 @@ export const unlinkUserFromCanva = https.onRequest(async (req, res) => {
         // Return success if snapshot is empty, ideally this should not happen since a user should be using this link via Canva only
         if(snapshot.empty) {
           console.log(`No Swaytribe user found for Canva user ID ${user.userId}`)
-          res.status(200).send({type: "SUCCESS"})
-          return
+          throw new Error('No SwayTribe user found for this Canva user')
         }
 
         // Return fail if there are multiple Swaytribe accounts
         if (snapshot.docs.length > 1) {
           console.log(`There are multiple users with the same canva user ID ${user.userId}`)
-          res.status(200).send({type: 'FAIL', message: 'There are multiple Canva users matching this request'})
-          return
+          throw new Error('There are multiple SwayTribe users linked to this Canva account')
         }
 
         // Update Swaytribe user to remove Canva user ID and brand ID
@@ -342,13 +344,13 @@ export const unlinkUserFromCanva = https.onRequest(async (req, res) => {
           updatedAt: FieldValue.serverTimestamp()
         })
   
-        // Return success if Swaytribe user is successfully unlinked from Canva
+        // Return success if SwayTribe user is successfully unlinked from Canva
         res.status(200).send({type: "SUCCESS"})
         return
       } catch (error) {
         // Return error if any
         console.log(error)
-        res.status(500).send({error: 'Error unlinking Canva user from SwayTribe'})
+        res.status(401).send({type: 'FAIL', error: 'Error unlinking Canva user from SwayTribe'})
         return
       }
     })
@@ -361,17 +363,27 @@ export const redirectCanvaToSwayTribe = https.onRequest(async (req, res) => {
     const extendedReq = Object.create(req) as ExtendedFirebaseRequest
     const redirectJwtMiddleware = createJwtMiddleware(getTokenFromQueryString)
     redirectJwtMiddleware(extendedReq, res, async () => {
+      const canvaUserId = extendedReq.canva.userId as string
+      const canvaBrandId = extendedReq.canva.brandId as string
+      const canvaState = extendedReq.query.state as string
+
+      if(canvaUserId === undefined || canvaBrandId === undefined || state === undefined) {
+        res.status(401).send({type: 'FAIL', message: 'Missing Canva user ID, brand ID or state'})
+        return
+      }
+      
       const stringifiedParams = new URLSearchParams({
-        canvaUserId: extendedReq.canva.userId as string,
-        canvaBrandId: extendedReq.canva.brandId as string,
-        state: extendedReq.query.state as string,
+        canvaUserId: canvaUserId,
+        canvaBrandId: canvaBrandId,
+        state: canvaState,
       })
+
       const currentEnvironment = environment()
       if (currentEnvironment === 'DEV') {
         res.status(302).redirect(`http://localhost:3000/authenticate/canva?${stringifiedParams}`)
         return
       } else if (currentEnvironment === 'PROD') {
-        res.status(200).redirect(`https://www.swaytribe.com/authenticate/canva?${stringifiedParams}`)
+        res.status(302).redirect(`https://www.swaytribe.com/authenticate/canva?${stringifiedParams}`)
       } else {
         res.status(401).send({type: 'FAIL', message: 'Invalid environment'})
       }
@@ -391,11 +403,14 @@ export const getBusinessAccountDetails = https.onRequest(async (req, res) => {
         const canvaBrandId = user.brandId
         const businessProfileName = req.query.profileName
         const requesterPageId = req.query.requesterPageId
+
+        if (canvaUserId === undefined || canvaBrandId === undefined) {
+          throw new Error('Missing Canva user ID or brand ID')
+        }
     
         // Check if business profile name and requester page ID is given
         if (businessProfileName === undefined || requesterPageId === undefined) {
-          res.status(200).send({type: 'FAIL', message: 'Missing request body'})
-          return
+          throw new Error('Missing request body')
         }
     
         // Check if the requesting Canva User ID is linked to an existing SwayTribe account
@@ -405,33 +420,29 @@ export const getBusinessAccountDetails = https.onRequest(async (req, res) => {
         // Return false if there is not user linked
         if(snapshot.empty) {
           console.log(`There are no Canva users that match canva user ID ${canvaUserId} and brand ID ${canvaBrandId}`)
-          res.status(200).send({type: 'FAIL', message: 'No SwayTribe user exist for this Canva user'})
-          return
+          throw new Error('No SwayTribe user exist for this Canva user')
         }
 
         // Check if there are multiple SwayTribe users linked to the same Canva user account
         if(snapshot.docs.length > 1) {
           console.log(`There are multiple users with the same canva user ID ${canvaUserId}`)
-          res.status(200).send({type: 'FAIL', message: 'There are multiple SwayTribe users linked to this Canva account'})
-          return
+          throw new Error('There are multiple SwayTribe users linked to this Canva account')
         }
 
         // Get the Instagram access token
         const data = snapshot.docs[0].data()
-        const accessToken = data.access_token_ig
+        const accessToken = data.access_token_ig as string
 
         // const stripeSubscriptionStatus = data.stripeSubscriptionStatus
         // if (stripeSubscriptionStatus !== 'active' || stripeSubscriptionStatus !== 'trialing') {
         //   console.log(`This user does not have an active subscription`)
-        //   res.status(200).send({type: 'FAIL', message: 'This user does not have an active subscription'})
-        //   return
+        //   throw new Error('This user does not have an active subscription')
         // }
 
         // Check if there is an Instagram access token
         if (accessToken === undefined || accessToken == '') {
           console.log(`This user has not connected their Instagram account to SwayTribe`)
-          res.status(200).send({type: 'FAIL', message: 'No Instagram account linked to this SwayTribe user'})
-          return
+          throw new Error('No Instagram account linked to this SwayTribe user')
         }
 
         // Get the business account details
@@ -439,10 +450,18 @@ export const getBusinessAccountDetails = https.onRequest(async (req, res) => {
         res.status(200).send({type: 'SUCCESS', data: response.data.business_discovery, status: response.status})
         return
       } catch (error) {
+        if (error instanceof Error) {
+          res.status(401).send({type: 'FAIL', message: error.message})
+          return
+        }
+        
+        //TODO: Consider creating a type to manage Axios errors
         let err = error as any
-        console.log(`Error getting business account details:`, err.response.data.error.error_user_msg);
-        res.status(401).send({type: 'FAIL', message: err.response.data.error.error_user_msg})
-        return
+        if ( err.response.data.error.error_user_msg !== undefined) {
+          console.log(`Error getting business account details:`, err.response.data.error.error_user_msg);
+          res.status(401).send({type: 'FAIL', message: err.response.data.error.error_user_msg})
+          return
+        }
       }
     })
   })
@@ -456,41 +475,43 @@ export const canvaGetAllInstagramPages = https.onRequest(async (req, res) => {
       try {
         // Get Canva user from request
         const user = extendedReq.canva
+        const canvaUserId = user.userId
+        const canvaBrandId = user.brandId
+
+        if (canvaUserId === undefined || canvaBrandId === undefined) {
+          throw new Error('Missing Canva user ID or brand ID')
+        }
         
         // Check if the requesting Canva User ID is linked to an existing SwayTribe account
         const userRef = admin.firestore().collection("users")
-        const snapshot = await userRef.where('canvaUserId', '==', user.userId).where('canvaBrandIds','array-contains',user.brandId).get()
-
+        const snapshot = await userRef.where('canvaUserId', '==', canvaUserId).where('canvaBrandIds','array-contains', canvaBrandId).get()
+    
         // Return false if there is not user linked
         if(snapshot.empty) {
-          console.log(`There are no Canva users that match canva user ID ${user.userId} and brand ID ${user.brandId}`)
-          res.status(200).send({type: 'FAIL', message: 'No SwayTribe user exist for this Canva user'})
-          return
+          console.log(`There are no Canva users that match canva user ID ${canvaUserId} and brand ID ${canvaBrandId}`)
+          throw new Error('No SwayTribe user exist for this Canva user')
         }
 
         // Check if there are multiple SwayTribe users linked to the same Canva user account
         if(snapshot.docs.length > 1) {
-          console.log(`There are multiple users with the same canva user ID ${user.userId}`)
-          res.status(200).send({type: 'FAIL', message: 'There are multiple SwayTribe users linked to this Canva account'})
-          return
+          console.log(`There are multiple users with the same canva user ID ${canvaUserId}`)
+          throw new Error('There are multiple SwayTribe users linked to this Canva account')
         }
 
         // Get the Instagram access token
         const data = snapshot.docs[0].data()
-        const accessToken = data.access_token_ig
+        const accessToken = data.access_token_ig as string
 
         // const stripeSubscriptionStatus = data.stripeSubscriptionStatus
         // if (stripeSubscriptionStatus !== 'active' || stripeSubscriptionStatus !== 'trialing') {
         //   console.log(`This user does not have an active subscription`)
-        //   res.status(200).send({type: 'FAIL', message: 'This user does not have an active subscription'})
-        //   return
+        //   throw new Error('This user does not have an active subscription')
         // }
 
         // Check if there is an Instagram access token
-        if (accessToken === undefined || accessToken === '') {
+        if (accessToken === undefined || accessToken == '') {
           console.log(`This user has not connected their Instagram account to SwayTribe`)
-          res.status(200).send({type: 'FAIL', message: 'No Instagram account linked to this SwayTribe user'})
-          return
+          throw new Error('No Instagram account linked to this SwayTribe user')
         }
 
         // Get all the users Instagram accounts
@@ -505,10 +526,18 @@ export const canvaGetAllInstagramPages = https.onRequest(async (req, res) => {
         res.status(200).send({type: 'SUCCESS', data: accounts})
         return
       } catch(error) {
+        if (error instanceof Error) {
+          res.status(401).send({type: 'FAIL', message: error.message})
+          return
+        }
+        
+        //TODO: Consider creating a type to manage Axios errors
         let err = error as any
-        console.log(`Error getting business account details:`, err.response.data.error.error_user_msg);
-        res.status(401).send({type: 'FAIL', message: err.response.data.error.error_user_msg})
-        return
+        if ( err.response.data.error.error_user_msg !== undefined) {
+          console.log(`Error getting business account details:`, err.response.data.error.error_user_msg);
+          res.status(401).send({type: 'FAIL', message: err.response.data.error.error_user_msg})
+          return
+        }
       }
     })
   })
@@ -526,47 +555,46 @@ export const getMediaFromIGUser = https.onRequest(async (req, res) => {
         const canvaBrandId = user.brandId
         const businessProfileName = req.query.profileName
         const requesterPageId = req.query.requesterPageId
+
+        if (canvaUserId === undefined || canvaBrandId === undefined) {
+          throw new Error('Missing Canva user ID or brand ID')
+        }
     
         // Check if business profile name and requester page ID is given
         if (businessProfileName === undefined || requesterPageId === undefined) {
-          res.status(200).send({type: 'FAIL', message: 'Missing request body'})
-          return
+          throw new Error('Missing request body')
         }
-    
+        
         // Check if the requesting Canva User ID is linked to an existing SwayTribe account
         const userRef = admin.firestore().collection("users")
-        const snapshot = await userRef.where('canvaUserId', '==', canvaUserId).where('canvaBrandIds','array-contains',canvaBrandId).get()
+        const snapshot = await userRef.where('canvaUserId', '==', canvaUserId).where('canvaBrandIds','array-contains', canvaBrandId).get()
     
         // Return false if there is not user linked
         if(snapshot.empty) {
           console.log(`There are no Canva users that match canva user ID ${canvaUserId} and brand ID ${canvaBrandId}`)
-          res.status(200).send({type: 'FAIL', message: 'No SwayTribe user exist for this Canva user'})
-          return
+          throw new Error('No SwayTribe user exist for this Canva user')
         }
 
         // Check if there are multiple SwayTribe users linked to the same Canva user account
         if(snapshot.docs.length > 1) {
           console.log(`There are multiple users with the same canva user ID ${canvaUserId}`)
-          res.status(200).send({type: 'FAIL', message: 'There are multiple SwayTribe users linked to this Canva account'})
-          return
+          throw new Error('There are multiple SwayTribe users linked to this Canva account')
         }
 
         // Get the Instagram access token
         const data = snapshot.docs[0].data()
-        const accessToken = data.access_token_ig
+        const accessToken = data.access_token_ig as string
 
         // const stripeSubscriptionStatus = data.stripeSubscriptionStatus
         // if (stripeSubscriptionStatus !== 'active' || stripeSubscriptionStatus !== 'trialing') {
         //   console.log(`This user does not have an active subscription`)
-        //   res.status(200).send({type: 'FAIL', message: 'This user does not have an active subscription'})
-        //   return
+        //   throw new Error('This user does not have an active subscription')
         // }
 
         // Check if there is an Instagram access token
-        if (accessToken === undefined || accessToken === '') {
+        if (accessToken === undefined || accessToken == '') {
           console.log(`This user has not connected their Instagram account to SwayTribe`)
-          res.status(200).send({type: 'FAIL', message: 'No Instagram account linked to this SwayTribe user'})
-          return
+          throw new Error('No Instagram account linked to this SwayTribe user')
         }
 
         // Get all media for this business account search
@@ -575,10 +603,18 @@ export const getMediaFromIGUser = https.onRequest(async (req, res) => {
         res.status(200).send({type: 'SUCCESS', data: business_media})
         return
       } catch (error) {
+        if (error instanceof Error) {
+          res.status(401).send({type: 'FAIL', message: error.message})
+          return
+        }
+        
+        //TODO: Consider creating a type to manage Axios errors
         let err = error as any
-        console.log(`Error getting business account details:`, err.response.data.error.error_user_msg);
-        res.status(401).send({type: 'FAIL', message: err.response.data.error.error_user_msg})
-        return
+        if ( err.response.data.error.error_user_msg !== undefined) {
+          console.log(`Error getting business account details:`, err.response.data.error.error_user_msg);
+          res.status(401).send({type: 'FAIL', message: err.response.data.error.error_user_msg})
+          return
+        }
       }
     })
   })
