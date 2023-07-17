@@ -8,6 +8,8 @@ import { createJwtMiddleware, ExtendedFirebaseRequest, getTokenFromQueryString }
 import { FieldValue } from '@google-cloud/firestore'
 import dotenv from 'dotenv';
 import Stripe from "stripe";
+import { sendTelegramMessage } from "./helper/telegram";
+import { addWaitlist } from "./helper/mailerlite";
 
 dotenv.config();
 admin.initializeApp()
@@ -82,15 +84,6 @@ export const addToWaitlist = runWith({secrets: ['MAILERLITE_API_KEY']}).https.on
     throw new https.HttpsError('invalid-argument', 'No email address found')
   }
 
-  //Check if Mailerlite API key is found
-  const mailerliteApiKey = process.env.MAILERLITE_API_KEY
-
-  // Return error if Mailerlite API key is not found
-  if (mailerliteApiKey === undefined) {
-    console.log(`Mailerlite API key not found`)
-    throw new https.HttpsError('failed-precondition', 'Mailerlite API key not found')
-  }
-
   // Check if user is already in SwayTribe waitlist
   const subscriberDoc = admin.firestore().collection("subscribers").doc(email)
   const subscribedData = await subscriberDoc.get()
@@ -101,33 +94,26 @@ export const addToWaitlist = runWith({secrets: ['MAILERLITE_API_KEY']}).https.on
     throw new https.HttpsError('already-exists', 'User is already on SwayTribe waitlist')
   }
 
-  // Add user to Mailerlite subscriber list
   try {
-    await axios.post(`https://connect.mailerlite.com/api/subscribers`, {
+    // Add user to Mailerlite
+    await addWaitlist(email)
+
+    // Add user to waitlist in database
+    await subscriberDoc.create({
       email: email,
-      fields: {
-        sign_up_email_status: 'pending'
-      }
-    }, {
-      headers: {
-        'Authorization': `Bearer ${mailerliteApiKey}`,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      }
+      createdAt: FieldValue.serverTimestamp()
     })
-  } catch (error: any) {
-    const errorMessage = error.response.data.message
-    console.log(errorMessage)
-    throw new https.HttpsError('internal', `Failed to add user to Mailerlite: ${errorMessage}`)
+
+    // Send Telegram message to notify that a new user has been added to the waitlist
+    await sendTelegramMessage(`A new user has been added to the waitlist: ${email}`)
+  
+    return {success: true, message: 'User added to waitlist'}
+  } catch (error) {
+    if (error instanceof Error) {
+      throw new https.HttpsError('unknown', error.message)
+    }
+    throw new https.HttpsError('unknown', 'Unable to add user to Mailerlite')
   }
-
-  // Add user to waitlist if they are not in the waitlist
-  await subscriberDoc.create({
-    email: email,
-    createdAt: FieldValue.serverTimestamp()
-  })
-
-  return {success: true, message: 'User added to waitlist'}
 })
 
 export const saveUserAccessToken = runWith({secrets: ['FACEBOOK_CLIENT_ID','FACEBOOK_CLIENT_SECRET']}).https.onCall(async (data, context) => {
