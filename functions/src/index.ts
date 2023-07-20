@@ -123,24 +123,27 @@ export const saveUserAccessToken = runWith({secrets: ['FACEBOOK_CLIENT_ID','FACE
     throw new https.HttpsError('unauthenticated', 'User not authenticated')
   }
   const uid = context.auth.uid
+  const code = data.code as string
+  const redirectURI = data.redirectURI as string
 
-  // Get short lived access token from request
-  const shortLivedToken = data.access_token as string
-
-  // Return error if there is no email addrress or if the email address is just a blank string
-  if (shortLivedToken === undefined || shortLivedToken.length === 0) {
-    console.log('Instagram access token not found in request')
-    throw new https.HttpsError('invalid-argument', 'Missing Instagram access token in request')
+  // Return error if there is no Instagram code or redirect URI
+  if (code === undefined || code.length === 0 || redirectURI === undefined || redirectURI.length === 0) {
+    console.log('Missing required param fields for this request')
+    throw new https.HttpsError('invalid-argument', 'Missing required param fields for this request')
   }
 
   // Get Facebook client ID and secret from environment variables
   const fbClientId = process.env.FACEBOOK_CLIENT_ID
   const fbClientSecret = process.env.FACEBOOK_CLIENT_SECRET
   
+  // Return error if Facebook client ID or secret is not found
   if(fbClientId === undefined || fbClientSecret === undefined ) {
     console.log('Missing Facebook environment values')
     throw new https.HttpsError('failed-precondition', 'Missing Facebook environment values')
   }
+
+  // Convert code to a short lived access token
+  const shortLivedToken = await getShortLivedToken(code, redirectURI, fbClientId, fbClientSecret)
   
   // Convert short lived access token to long lived token
   const longLivedToken = await getLongLivedToken(shortLivedToken, fbClientId, fbClientSecret)
@@ -153,6 +156,27 @@ export const saveUserAccessToken = runWith({secrets: ['FACEBOOK_CLIENT_ID','FACE
     updatedAt: FieldValue.serverTimestamp()
   })
 })
+
+const getShortLivedToken = async (code: string, redirectURI: string, clientID: string, clientSecret: string) => {
+  try {
+    const { data } = await axios({
+      url: 'https://graph.facebook.com/v16.0/oauth/access_token',
+      method: 'get',
+      params: {
+        client_id: clientID,
+        redirect_uri: redirectURI,
+        client_secret: clientSecret,
+        code: code
+      }
+    })
+
+    return data.access_token
+  } catch (error: any) {
+    const errorMessage = error.response.data.error.message
+    console.log(errorMessage)
+    throw new https.HttpsError('unknown', `Failed to get short lived access token from Instagram: ${errorMessage}`)
+  }
+}
 
 const getLongLivedToken = async (shortLivedToken: string, clientID: string, clientSecret: string) => {
   try {
