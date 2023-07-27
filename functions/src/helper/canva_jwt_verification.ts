@@ -1,6 +1,7 @@
 import { Response as FirebaseResponse, Request as FirebaseRequest } from "firebase-functions/v1";
 import jwt from 'jsonwebtoken';
 import { JwksClient, SigningKeyNotFoundError } from "jwks-rsa";
+import { environment } from "./helper";
 
 /**
  * This file contains the JWT verification code for Canva's serverless platform.
@@ -33,16 +34,23 @@ const createJwksUrl = (appId: string) => `https://api.canva.com/rest/v1/apps/${a
 const sendUnauthorizedResponse = (res: FirebaseResponse, message?: string) => res.status(401).json({ error: "unauthorized", message });
 
 export function createJwtMiddleware(getTokenFromRequest: (req: FirebaseRequest) => Promise<string> | string = getTokenFromHttpHeader) {
-  // TODO: Set the CANVA_APP_ID environment variable in the project's .env file
+  // Get the app ID from the environment variables for both DEV and PROD
   const appId = process.env.CANVA_APP_ID
+  const appIdDev = process.env.CANVA_APP_ID_DEV
 
-  if (!appId) {
+  // Throw an error if the app ID is not defined or empty
+  if (!appId || appId === '' || !appIdDev || appIdDev === '') {
     throw new Error(
       `The CANVA_APP_ID environment variable is undefined. Set the variable in the project's .env file.`
     );
   }
 
-  return constructJwtMiddleware({appId, getTokenFromRequest});
+  // Return the JWT middleware based on the environment
+  if (environment() === 'PROD') {
+    return constructJwtMiddleware({appId, getTokenFromRequest})
+  } else {
+    return constructJwtMiddleware({appId: appIdDev, getTokenFromRequest})
+  }
 }
 
 // Middleware function that verifies the JWT - This code is taken from the Canva documentation

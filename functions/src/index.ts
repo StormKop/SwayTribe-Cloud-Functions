@@ -13,7 +13,7 @@ import { addWaitlist } from "./helper/mailerlite";
 
 dotenv.config();
 admin.initializeApp()
-const corsHandler = cors({ origin: ['https://app-aafqj9tmlb4.canva-apps.com'] });
+const corsHandler = cors({ origin: ['https://app-aafqj9tmlb4.canva-apps.com','https://app-aafdwybelee.canva-apps.com'] });
 const jwtMiddleware = createJwtMiddleware()
 
 export const createUser = auth.user().onCreate(async (user) => {
