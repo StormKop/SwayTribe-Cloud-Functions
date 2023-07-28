@@ -262,7 +262,7 @@ export const linkUserToCanva = https.onCall(async (data, context) => {
   } catch (error) {
     // Return error if any
     console.log(`Error linking Canva user to SwayTribe account`, error)
-    return {success: false, state: canvaState, error: 'Error linking Canva user to SwayTribe account'}
+    return {success: false, state: canvaState, error: 'Unable to link Canva user to SwayTribe account'}
   }
 })
 
@@ -294,10 +294,10 @@ export const isUserLinkedToCanva = https.onRequest(async (req, res) => {
         // Return error if any
         if (error instanceof Error) {
           console.log(error.message)
-          res.status(401).send({isAuthenticated: false, message: error.message})
+          res.status(401).send({isAuthenticated: false, errorMessage: error.message})
         } else {
           console.log(error)
-          res.status(401).send({isAuthenticated: false, message: error})
+          res.status(401).send({isAuthenticated: false, errorMessage: error})
         }
         return
       }
