@@ -449,16 +449,15 @@ export const getBusinessAccountDetails = https.onRequest(async (req, res) => {
         res.status(200).send({type: 'SUCCESS', data: response.data.business_discovery, status: response.status})
         return
       } catch (error) {
-        if (error instanceof Error) {
-          res.status(401).send({type: 'FAIL', message: error.message})
-          return
-        }
-        
-        //TODO: Consider creating a type to manage Axios errors
         let err = error as any
         if ( err.response.data.error.error_user_msg !== undefined) {
           console.log(`Error getting business account details:`, err.response.data.error.error_user_msg);
           res.status(401).send({type: 'FAIL', message: err.response.data.error.error_user_msg})
+          return
+        }
+
+        if (error instanceof Error) {
+          res.status(401).send({type: 'FAIL', message: error.message})
           return
         }
       }
@@ -488,7 +487,7 @@ export const canvaGetAllInstagramPages = https.onRequest(async (req, res) => {
         // Return false if there is not user linked
         if(snapshot.empty) {
           console.log(`There are no Canva users that match canva user ID ${canvaUserId} and brand ID ${canvaBrandId}`)
-          throw new Error('No SwayTribe user exist for this Canva user')
+          throw new Error('No SwayTribe account exist for this Canva user')
         }
 
         // Check if there are multiple SwayTribe users linked to the same Canva user account
@@ -524,17 +523,17 @@ export const canvaGetAllInstagramPages = https.onRequest(async (req, res) => {
         }))
         res.status(200).send({type: 'SUCCESS', data: accounts})
         return
-      } catch(error) {
-        if (error instanceof Error) {
-          res.status(401).send({type: 'FAIL', message: error.message})
+      } catch(error: any) {
+        //TODO: Use AxiosError to parse errors from Axios
+        let err = error as any
+        if (err.response.data.error.message !== undefined) {
+          console.log(`Error getting business account details:`, err.response.data.error.message);
+          res.status(401).send({type: 'FAIL', errorMessage: err.response.data.error.message})
           return
         }
-        
-        //TODO: Consider creating a type to manage Axios errors
-        let err = error as any
-        if ( err.response.data.error.error_user_msg !== undefined) {
-          console.log(`Error getting business account details:`, err.response.data.error.error_user_msg);
-          res.status(401).send({type: 'FAIL', message: err.response.data.error.error_user_msg})
+
+        if (error instanceof Error) {
+          res.status(401).send({type: 'FAIL', errorMessage: error.message})
           return
         }
       }
@@ -602,16 +601,15 @@ export const getMediaFromIGUser = https.onRequest(async (req, res) => {
         res.status(200).send({type: 'SUCCESS', data: business_media})
         return
       } catch (error) {
-        if (error instanceof Error) {
-          res.status(401).send({type: 'FAIL', message: error.message})
-          return
-        }
-        
-        //TODO: Consider creating a type to manage Axios errors
         let err = error as any
         if ( err.response.data.error.error_user_msg !== undefined) {
           console.log(`Error getting business account details:`, err.response.data.error.error_user_msg);
           res.status(401).send({type: 'FAIL', message: err.response.data.error.error_user_msg})
+          return
+        }
+
+        if (error instanceof Error) {
+          res.status(401).send({type: 'FAIL', message: error.message})
           return
         }
       }
