@@ -1,7 +1,7 @@
 import { auth, https, runWith } from "firebase-functions";
 import * as admin from "firebase-admin"
 import { SetOptions } from "firebase-admin/firestore";
-import axios from "axios";
+import axios, { AxiosError } from "axios";
 import { environment } from "./helper/helper";
 import cors from 'cors';
 import { createJwtMiddleware, ExtendedFirebaseRequest, getTokenFromQueryString } from "./helper/canva_jwt_verification";
@@ -449,15 +449,14 @@ export const getBusinessAccountDetails = https.onRequest(async (req, res) => {
         res.status(200).send({type: 'SUCCESS', data: response.data.business_discovery, status: response.status})
         return
       } catch (error) {
-        let err = error as any
-        if ( err.response.data.error.error_user_msg !== undefined) {
-          console.log(`Error getting business account details:`, err.response.data.error.error_user_msg);
-          res.status(401).send({type: 'FAIL', message: err.response.data.error.error_user_msg})
+        if (error instanceof AxiosError) {
+          console.log(`Error getting business account details:`, error.response!.data.error.message);
+          res.status(401).send({type: 'FAIL', errorMessage: error.response!.data.error.error_user_msg})
           return
         }
 
         if (error instanceof Error) {
-          res.status(401).send({type: 'FAIL', message: error.message})
+          res.status(401).send({type: 'FAIL', errorMessage: error.message})
           return
         }
       }
@@ -524,11 +523,9 @@ export const canvaGetAllInstagramPages = https.onRequest(async (req, res) => {
         res.status(200).send({type: 'SUCCESS', data: accounts})
         return
       } catch(error: any) {
-        //TODO: Use AxiosError to parse errors from Axios
-        let err = error as any
-        if (err.response.data.error.message !== undefined) {
-          console.log(`Error getting business account details:`, err.response.data.error.message);
-          res.status(401).send({type: 'FAIL', errorMessage: err.response.data.error.message})
+        if (error instanceof AxiosError) {
+          console.log(`Error getting business account details:`, error.response!.data.error.message);
+          res.status(401).send({type: 'FAIL', errorMessage: error.response!.data.error.error_user_msg})
           return
         }
 
@@ -601,10 +598,9 @@ export const getMediaFromIGUser = https.onRequest(async (req, res) => {
         res.status(200).send({type: 'SUCCESS', data: business_media})
         return
       } catch (error) {
-        let err = error as any
-        if ( err.response.data.error.error_user_msg !== undefined) {
-          console.log(`Error getting business account details:`, err.response.data.error.error_user_msg);
-          res.status(401).send({type: 'FAIL', message: err.response.data.error.error_user_msg})
+        if (error instanceof AxiosError) {
+          console.log(`Error getting Instagram media from requested page:`, error.response!.data.error.message);
+          res.status(401).send({type: 'FAIL', message: error.response!.data.error.error_user_msg})
           return
         }
 
