@@ -10,11 +10,15 @@ import dotenv from 'dotenv';
 import Stripe from "stripe";
 import { sendTelegramMessage } from "./helper/telegram";
 import { addWaitlist } from "./helper/mailerlite";
+import { createThumbnail } from "./helper/thumbnailGenerator";
+import ffmpeg from 'fluent-ffmpeg'
+const ffmpegPath = require("@ffmpeg-installer/ffmpeg").path
 
 dotenv.config();
 admin.initializeApp()
 const corsHandler = cors({ origin: ['https://app-aafqj9tmlb4.canva-apps.com','https://app-aafdwybelee.canva-apps.com'] });
 const jwtMiddleware = createJwtMiddleware()
+ffmpeg.setFfmpegPath(ffmpegPath)
 
 export const createUser = auth.user().onCreate(async (user) => {
   const uid = user.uid
@@ -548,7 +552,7 @@ export const getMediaFromIGUser = https.onRequest(async (req, res) => {
         const user = extendedReq.canva
         const canvaUserId = user.userId
         const canvaBrandId = user.brandId
-        const businessProfileName = req.query.profileName
+        const businessProfileName = req.query.profileName as string
         const requesterPageId = req.query.requesterPageId
 
         if (canvaUserId === undefined || canvaBrandId === undefined) {
@@ -595,7 +599,28 @@ export const getMediaFromIGUser = https.onRequest(async (req, res) => {
         // Get all media for this business account search
         const response = await axios.get(`https://graph.facebook.com/v15.0/${requesterPageId}?fields=business_discovery.username(${businessProfileName})%7Bmedia%7Btimestamp%2Cpermalink%2Cmedia_url%2Cmedia_product_type%2C%20media_type%2Ccaption%2Ccomments_count%2Clike_count%7D%7D&access_token=${accessToken}`);
         const business_media = response.data.business_discovery.media
-        res.status(200).send({type: 'SUCCESS', data: business_media})
+
+        // Filter out any media that doesn't have a media_url. This is likely due to copyright issues
+        // Refer here https://developers.facebook.com/docs/instagram-api/reference/ig-media#:~:text=or%20VIDEO.-,media_url,-Public
+        const medias = business_media.data
+        const filteredMedias = medias.filter((media: any) => media.media_url !== undefined)
+
+        // Loop through the business media (video only)
+        // Create a thumbnail for each video and save it to cloud storage
+        // Get the download URL for the created thumbnail
+        // Add the thumbnail URL to the Instagtam media object
+        const thumbnailPromises = filteredMedias.map(async (media: any) => {
+          if (media.media_type === 'VIDEO') {
+            const videoURL = media.media_url
+            const thumbnailFileName = businessProfileName + '-' + media.id.toString()
+            const thumbnailURL = await createThumbnail(videoURL, thumbnailFileName)
+            media.thumbnail_url = thumbnailURL
+          }
+        });
+        await Promise.all(thumbnailPromises)
+
+        // Return all the Instagram media for this business account
+        res.status(200).send({type: 'SUCCESS', data: filteredMedias})
         return
       } catch (error) {
         if (error instanceof AxiosError) {
