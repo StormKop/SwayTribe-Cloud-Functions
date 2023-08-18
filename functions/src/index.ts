@@ -11,14 +11,11 @@ import Stripe from "stripe";
 import { sendTelegramMessage } from "./helper/telegram";
 import { addWaitlist } from "./helper/mailerlite";
 import { createThumbnail } from "./helper/thumbnailGenerator";
-import ffmpeg from 'fluent-ffmpeg'
-const ffmpegPath = require("@ffmpeg-installer/ffmpeg").path
 
 dotenv.config();
 admin.initializeApp()
 const corsHandler = cors({ origin: ['https://app-aafqj9tmlb4.canva-apps.com','https://app-aafdwybelee.canva-apps.com'] });
 const jwtMiddleware = createJwtMiddleware()
-ffmpeg.setFfmpegPath(ffmpegPath)
 
 export const createUser = auth.user().onCreate(async (user) => {
   const uid = user.uid
@@ -542,7 +539,7 @@ export const canvaGetAllInstagramPages = https.onRequest(async (req, res) => {
   })
 })
 
-export const getMediaFromIGUser = https.onRequest(async (req, res) => {
+export const getMediaFromIGUser = runWith({memory: '1GB'}).https.onRequest(async (req, res) => {
   corsHandler(req, res, async () => {
     // Creating a new request object with the Canva user data
     const extendedReq = Object.create(req) as ExtendedFirebaseRequest
@@ -608,7 +605,7 @@ export const getMediaFromIGUser = https.onRequest(async (req, res) => {
         // Loop through the business media (video only)
         // Create a thumbnail for each video and save it to cloud storage
         // Get the download URL for the created thumbnail
-        // Add the thumbnail URL to the Instagtam media object
+        // Add the thumbnail URL to the Instagram media object
         const thumbnailPromises = filteredMedias.map(async (media: any) => {
           if (media.media_type === 'VIDEO') {
             const videoURL = media.media_url
@@ -616,11 +613,12 @@ export const getMediaFromIGUser = https.onRequest(async (req, res) => {
             const thumbnailURL = await createThumbnail(videoURL, thumbnailFileName)
             media.thumbnail_url = thumbnailURL
           }
+          return media
         });
-        await Promise.all(thumbnailPromises)
+        const finalMedias = await Promise.all(thumbnailPromises)
 
         // Return all the Instagram media for this business account
-        res.status(200).send({type: 'SUCCESS', data: filteredMedias})
+        res.status(200).send({type: 'SUCCESS', data: finalMedias})
         return
       } catch (error) {
         if (error instanceof AxiosError) {
