@@ -216,35 +216,42 @@ export const linkUserToCanva = https.onCall(async (data, context) => {
   const canvaUserId = data.canvaUserId
   const canvaBrandId = data.canvaBrandId
   const canvaState = data.state
-  
-  // Check if user is authenticated else return an error
-  if (!context.auth) {
-    return {success: false, state: canvaState, error: 'User not authenticated'}
-  }
-
-  const uid = context.auth.uid
-
-  if (canvaUserId === undefined || canvaBrandId === undefined || canvaState === undefined) {
-    return {success: false, state: canvaState, error: 'Missing Canva request body'}
-  }
+  const canvaRedirectURL = 'https://www.canva.com/apps/configured?'
   
   try {
-    //Check if the requesting Canva User ID is linked to an existing SwayTribe account
+    // Check if user is authenticated
+    if (!context.auth) {
+      throw new Error('User not authenticated')
+    }
+  
+    // Get user ID from context
+    const uid = context.auth.uid
+
+    // Ensure that Canva user ID, brand ID and state is defined
+    if (canvaUserId === undefined || canvaBrandId === undefined || canvaState === undefined) {
+      throw new Error('Missing Canva user ID, brand ID or state')
+    }
+    
+    // Check if the requesting Canva User ID is linked to an existing SwayTribe account
     const userDoc = admin.firestore().collection("users").doc(uid)
     const snapshot = await userDoc.get()
     const mergeOptions: SetOptions = { merge: true} 
 
     if(!snapshot.exists) {
-      // Return false if there is not user linked
       console.log(`There are no SwayTribe user that match this user ID ${uid}`)
-      return {success: false, state: canvaState, error: 'User not found in SwayTribe'}
+      throw new Error('User not found in SwayTribe')
     }
     const data = snapshot.data()
+
+    // Check if the user has any data stored in SwayTribe. Ideally they should
     if(data === undefined) {
       console.log(`There are no SwayTribe user that match this user ID ${uid}`)
-      return {success: false, state: canvaState, error: 'User not found in SwayTribe'}
+      throw new Error('User not found in SwayTribe')
     }
 
+    // Check if the SwayTribe user has linked any other Canva brands to SwayTribe
+    // If yes, add the new brand ID to the existing array
+    // If no, create a new array with the brand ID
     if (data.canvaBrandIds === undefined) {
       await userDoc.set({
         canvaUserId: canvaUserId,
@@ -258,12 +265,24 @@ export const linkUserToCanva = https.onCall(async (data, context) => {
         canvaBrandIds: FieldValue.arrayUnion(canvaBrandId),
         updatedAt: FieldValue.serverTimestamp()
       }, mergeOptions)
-      return {success: true, state: canvaState}
+
+      // Return a Canva redirect URL with a success query data
+      const urlParams = new URLSearchParams({success: 'true', state: canvaState})
+      return {success: true, canvaRedirectURL: canvaRedirectURL + urlParams.toString()}
     }
   } catch (error) {
-    // Return error if any
+    // Return a Canva redirect URL with an error query data
+    const urlParams = new URLSearchParams({success: 'false', state: canvaState})
+
+    if (error instanceof Error) {
+      console.log(error.message)
+      urlParams.append('errors', error.message)
+      return {success: false, canvaRedirectURL: canvaRedirectURL + urlParams.toString()}
+    }
+
     console.log(`Error linking Canva user to SwayTribe account`, error)
-    return {success: false, state: canvaState, error: 'Unable to link Canva user to SwayTribe account'}
+    urlParams.append('errors', 'Unable to link Canva user to SwayTribe account')
+    return {success: false, canvaRedirectURL: canvaRedirectURL + urlParams.toString()}
   }
 })
 
