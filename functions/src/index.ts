@@ -255,7 +255,7 @@ export const linkUserToCanva = https.onCall(async (data, context) => {
     } else {
       await userDoc.set({
         canvaUserId: canvaUserId,
-        canvaBrandIds: admin.firestore.FieldValue.arrayUnion(canvaBrandId),
+        canvaBrandIds: FieldValue.arrayUnion(canvaBrandId),
         updatedAt: FieldValue.serverTimestamp()
       }, mergeOptions)
       return {success: true, state: canvaState}
@@ -335,14 +335,26 @@ export const unlinkUserFromCanva = https.onRequest(async (req, res) => {
           throw new Error('There are multiple SwayTribe users linked to this Canva account')
         }
 
-        // Update Swaytribe user to remove Canva user ID and brand ID
-        // TODO: Remove Canva brand ID from array first, if array does not contain any more brand IDs, remove Canva user ID
+        // Get the user data from database
         const doc = snapshot.docs[0]
-        await doc.ref.update({
-          canvaUserId: '',
-          canvaBrandIds: [],
-          updatedAt: FieldValue.serverTimestamp()
-        })
+        const userData = doc.data()
+        const canvaBrandIds = userData.canvaBrandIds as [string]
+
+        // Check number of Canva accounts (brand ID) linked to this SwayTribe account
+        if (canvaBrandIds.length === 1) {
+          // If the user only connected one Canva account (brand ID), remove the brand ID and canva user ID
+          await doc.ref.update({
+            canvaUserId: '',
+            canvaBrandIds: FieldValue.arrayRemove(user.brandId),
+            updatedAt: FieldValue.serverTimestamp()
+          })
+        } else {
+          // If the user connected multiple Canva accounts (brand ID), remove only the brand ID that is being unlinked
+          await doc.ref.update({
+            canvaBrandIds: FieldValue.arrayRemove(user.brandId),
+            updatedAt: FieldValue.serverTimestamp()
+          })
+        }
   
         // Return success if SwayTribe user is successfully unlinked from Canva
         res.status(200).send({type: "SUCCESS"})
