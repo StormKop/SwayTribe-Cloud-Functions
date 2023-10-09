@@ -258,18 +258,16 @@ export const linkUserToCanva = https.onCall(async (data, context) => {
         canvaBrandIds: [canvaBrandId],
         updatedAt: FieldValue.serverTimestamp()
       }, mergeOptions)
-      return {success: true, state: canvaState}
     } else {
       await userDoc.set({
         canvaUserId: canvaUserId,
         canvaBrandIds: FieldValue.arrayUnion(canvaBrandId),
         updatedAt: FieldValue.serverTimestamp()
       }, mergeOptions)
-
-      // Return a Canva redirect URL with a success query data
-      const urlParams = new URLSearchParams({success: 'true', state: canvaState})
-      return {success: true, canvaRedirectURL: canvaRedirectURL + urlParams.toString()}
     }
+    // Return a Canva redirect URL with a success query data
+    const urlParams = new URLSearchParams({success: 'true', state: canvaState})
+    return {success: true, canvaRedirectURL: canvaRedirectURL + urlParams.toString()}
   } catch (error) {
     // Return a Canva redirect URL with an error query data
     const urlParams = new URLSearchParams({success: 'false', state: canvaState})
