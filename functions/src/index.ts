@@ -639,8 +639,9 @@ export const getMediaFromIGUser = runWith({memory: '1GB'}).https.onRequest(async
           if (media.media_type === 'VIDEO') {
             const videoURL = media.media_url
             const thumbnailFileName = businessProfileName + '-' + media.id.toString()
-            const thumbnailURL = await createThumbnail(videoURL, thumbnailFileName)
-            media.thumbnail_url = thumbnailURL
+            const videoData = await createThumbnail(videoURL, thumbnailFileName)
+            media.thumbnail_url = videoData.thumbnailDownloadURL
+            media.durationInSeconds = videoData.durationInSeconds
           }
           return media
         });
