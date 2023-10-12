@@ -10,7 +10,7 @@ import dotenv from 'dotenv';
 import Stripe from "stripe";
 import { sendTelegramMessage } from "./helper/telegram";
 import { addWaitlist } from "./helper/mailerlite";
-import { createThumbnail } from "./helper/thumbnailGenerator";
+import { createOrGetVideoData } from "./helper/videoProcessor";
 
 dotenv.config();
 admin.initializeApp()
@@ -639,7 +639,7 @@ export const getMediaFromIGUser = runWith({memory: '1GB'}).https.onRequest(async
           if (media.media_type === 'VIDEO') {
             const videoURL = media.media_url
             const thumbnailFileName = businessProfileName + '-' + media.id.toString()
-            const videoData = await createThumbnail(videoURL, thumbnailFileName)
+            const videoData = await createOrGetVideoData(videoURL, thumbnailFileName)
             media.thumbnail_url = videoData.thumbnailDownloadURL
             media.durationInSeconds = videoData.durationInSeconds
           }
