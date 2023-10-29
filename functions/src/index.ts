@@ -11,11 +11,14 @@ import Stripe from "stripe";
 import { sendTelegramMessage } from "./helper/telegram";
 import { addWaitlist } from "./helper/mailerlite";
 import { createOrGetVideoData } from "./helper/videoProcessor";
+import * as crypto from 'crypto';
+import cookieParser from "cookie-parser";
 
 dotenv.config();
 admin.initializeApp()
-const corsHandler = cors({ origin: ['https://app-aafqj9tmlb4.canva-apps.com','https://app-aafdwybelee.canva-apps.com'] });
+const corsHandler = cors({ origin: ['https://app-aafqj9tmlb4.canva-apps.com','https://app-aafdwybelee.canva-apps.com','http://localhost:3000'] });
 const jwtMiddleware = createJwtMiddleware()
+const cookieParserMiddleware = cookieParser(process.env.CANVA_COOKIE_SECRET)
 
 export const createUser = auth.user().onCreate(async (user) => {
   const uid = user.uid
@@ -324,98 +327,170 @@ export const isUserLinkedToCanva = https.onRequest(async (req, res) => {
 })
 
 export const unlinkUserFromCanva = https.onRequest(async (req, res) => {
-  if (!req.url.includes('/configuration/delete')) {
+  if (req.url.includes('/configuration/delete')) {
+    corsHandler(req, res, async () => {
+      const extendedReq = Object.create(req) as ExtendedFirebaseRequest
+      jwtMiddleware(extendedReq, res, async () => {
+        // Get Canva user from request
+        const user = extendedReq.canva
+        try {
+          //Find Swaytribe user for Canva user ID
+          const userRef = admin.firestore().collection("users")
+          const snapshot = await userRef.where('canvaUserId', '==', user.userId).where('canvaBrandIds','array-contains', user.brandId).get()
+      
+          // Return success if snapshot is empty, ideally this should not happen since a user should be using this link via Canva only
+          if(snapshot.empty) {
+            console.log(`No Swaytribe user found for Canva user ID ${user.userId}`)
+            throw new Error('No SwayTribe user found for this Canva user')
+          }
+  
+          // Return fail if there are multiple Swaytribe accounts
+          if (snapshot.docs.length > 1) {
+            console.log(`There are multiple users with the same canva user ID ${user.userId}`)
+            throw new Error('There are multiple SwayTribe users linked to this Canva account')
+          }
+  
+          // Get the user data from database
+          const doc = snapshot.docs[0]
+          const userData = doc.data()
+          const canvaBrandIds = userData.canvaBrandIds as [string]
+  
+          // Check number of Canva accounts (brand ID) linked to this SwayTribe account
+          if (canvaBrandIds.length === 1) {
+            // If the user only connected one Canva account (brand ID), remove the brand ID and canva user ID
+            await doc.ref.update({
+              canvaUserId: '',
+              canvaBrandIds: FieldValue.arrayRemove(user.brandId),
+              updatedAt: FieldValue.serverTimestamp()
+            })
+          } else {
+            // If the user connected multiple Canva accounts (brand ID), remove only the brand ID that is being unlinked
+            await doc.ref.update({
+              canvaBrandIds: FieldValue.arrayRemove(user.brandId),
+              updatedAt: FieldValue.serverTimestamp()
+            })
+          }
+    
+          // Return success if SwayTribe user is successfully unlinked from Canva
+          res.status(200).send({type: "SUCCESS"})
+          return
+        } catch (error) {
+          // Return error if any
+          console.log(error)
+          res.status(401).send({type: 'FAIL', error: 'Error unlinking Canva user from SwayTribe'})
+          return
+        }
+      })
+    })
+  } else if (req.url.includes('/configuration/start')) {
+    cookieParserMiddleware(req, res, async () => {
+      // The expiry time for the nonce cookie
+      const COOKIE_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
+  
+      // Generate a nonce
+      const nonce = crypto.randomUUID();
+  
+      // Create an expiry time for the nonce
+      const nonceExpiry = Date.now() + COOKIE_EXPIRY_MS;
+  
+      // Store the nonce and expiry time in a JSON string
+      const nonceWithExpiry = JSON.stringify([nonce, nonceExpiry]);
+  
+      // Store the nonce and expiry time in a cookie
+      res.cookie("nonceWithExpiry", nonceWithExpiry, {
+        httpOnly: true,
+        secure: true,
+        signed: true,
+        maxAge: COOKIE_EXPIRY_MS,
+      })
+
+      // Get the state from the query string
+      const { state } = req.query
+
+      // Set the redirect URL params
+      const urlParams = new URLSearchParams({
+        state: state as string,
+        nonce: nonce as string
+      })
+
+      // Redirect to the Canva auth page
+      res.redirect(`https://www.canva.com/apps/configure/link?${urlParams.toString()}`)
+      return
+    })
+  } else {
     console.log(`This is not a valid URL for this trigger`)
     res.status(200).send({type: "FAIL", message: "This is not a valid URL for this trigger"})
     return
   }
-
-  corsHandler(req, res, async () => {
-    const extendedReq = Object.create(req) as ExtendedFirebaseRequest
-    jwtMiddleware(extendedReq, res, async () => {
-      // Get Canva user from request
-      const user = extendedReq.canva
-      try {
-        //Find Swaytribe user for Canva user ID
-        const userRef = admin.firestore().collection("users")
-        const snapshot = await userRef.where('canvaUserId', '==', user.userId).where('canvaBrandIds','array-contains', user.brandId).get()
-    
-        // Return success if snapshot is empty, ideally this should not happen since a user should be using this link via Canva only
-        if(snapshot.empty) {
-          console.log(`No Swaytribe user found for Canva user ID ${user.userId}`)
-          throw new Error('No SwayTribe user found for this Canva user')
-        }
-
-        // Return fail if there are multiple Swaytribe accounts
-        if (snapshot.docs.length > 1) {
-          console.log(`There are multiple users with the same canva user ID ${user.userId}`)
-          throw new Error('There are multiple SwayTribe users linked to this Canva account')
-        }
-
-        // Get the user data from database
-        const doc = snapshot.docs[0]
-        const userData = doc.data()
-        const canvaBrandIds = userData.canvaBrandIds as [string]
-
-        // Check number of Canva accounts (brand ID) linked to this SwayTribe account
-        if (canvaBrandIds.length === 1) {
-          // If the user only connected one Canva account (brand ID), remove the brand ID and canva user ID
-          await doc.ref.update({
-            canvaUserId: '',
-            canvaBrandIds: FieldValue.arrayRemove(user.brandId),
-            updatedAt: FieldValue.serverTimestamp()
-          })
-        } else {
-          // If the user connected multiple Canva accounts (brand ID), remove only the brand ID that is being unlinked
-          await doc.ref.update({
-            canvaBrandIds: FieldValue.arrayRemove(user.brandId),
-            updatedAt: FieldValue.serverTimestamp()
-          })
-        }
-  
-        // Return success if SwayTribe user is successfully unlinked from Canva
-        res.status(200).send({type: "SUCCESS"})
-        return
-      } catch (error) {
-        // Return error if any
-        console.log(error)
-        res.status(401).send({type: 'FAIL', error: 'Error unlinking Canva user from SwayTribe'})
-        return
-      }
-    })
-  })
 })
 
 export const redirectCanvaToSwayTribe = https.onRequest(async (req, res) => {
   corsHandler(req, res, async () => {
-    // Creating a new request object with the Canva user data
-    const extendedReq = Object.create(req) as ExtendedFirebaseRequest
-    const redirectJwtMiddleware = createJwtMiddleware(getTokenFromQueryString)
-    redirectJwtMiddleware(extendedReq, res, async () => {
-      const canvaUserId = extendedReq.canva.userId as string
-      const canvaBrandId = extendedReq.canva.brandId as string
-      const canvaState = extendedReq.query.state as string
+    cookieParserMiddleware(req, res, async () => {
+      // Check if the nonce in the query string matches the nonce in the cookie
+      try {
+        // Get the nonce from the query string and the nonce expiry datetime from the cookie
+        const nonceQuery = req.query.nonce as string
+        const nonceWithExpiryCookie = req.signedCookies.nonceWithExpiry as string
 
-      if(canvaUserId === undefined || canvaBrandId === undefined || canvaState === undefined) {
-        res.status(401).send({type: 'FAIL', message: 'Missing Canva user ID, brand ID or state'})
+        const nonceWithExpiry = JSON.parse(nonceWithExpiryCookie)
+        const [nonceCookie, nonceExpiry] = nonceWithExpiry
+        // Clear the nonce cookie
+        res.clearCookie('nonceWithExpiry')
+    
+        // Check if the nonce is valid
+        if (
+          Date.now() > nonceExpiry ||
+          typeof nonceCookie !== 'string' ||
+          typeof nonceQuery !== 'string' ||
+          nonceCookie.length < 1 ||
+          nonceQuery.length < 1 ||
+          nonceCookie !== nonceQuery
+        ) {
+          throw Error('Invalid nonce')
+        }
+      } catch (error) {
+        // Return error if nonce validation has failed
+        if (error instanceof Error) {
+          console.log(error.message)
+        } else {
+          console.log(error)
+        }
+        const urlParams = new URLSearchParams({success: "false", state: req.query.state as string, errors: "invalid_nonce",})
+
+        res.status(302).redirect('https://www.canva.com/apps/configured?' + urlParams.toString())
         return
       }
-      
-      const stringifiedParams = new URLSearchParams({
-        canvaUserId: canvaUserId,
-        canvaBrandId: canvaBrandId,
-        state: canvaState,
+
+      // Creating a new request object with the Canva user data
+      const extendedReq = Object.create(req) as ExtendedFirebaseRequest
+      const redirectJwtMiddleware = createJwtMiddleware(getTokenFromQueryString)
+      redirectJwtMiddleware(extendedReq, res, async () => {
+        const canvaUserId = extendedReq.canva.userId as string
+        const canvaBrandId = extendedReq.canva.brandId as string
+        const canvaState = extendedReq.query.state as string
+  
+        if(canvaUserId === undefined || canvaBrandId === undefined || canvaState === undefined) {
+          res.status(401).send({type: 'FAIL', message: 'Missing Canva user ID, brand ID or state'})
+          return
+        }
+        
+        const stringifiedParams = new URLSearchParams({
+          canvaUserId: canvaUserId,
+          canvaBrandId: canvaBrandId,
+          state: canvaState,
+        })
+  
+        const currentEnvironment = environment()
+        if (currentEnvironment === 'DEV') {
+          res.status(302).redirect(`http://localhost:3000/authenticate/canva?${stringifiedParams}`)
+          return
+        } else if (currentEnvironment === 'PROD') {
+          res.status(302).redirect(`https://www.swaytribe.com/authenticate/canva?${stringifiedParams}`)
+        } else {
+          res.status(401).send({type: 'FAIL', message: 'Invalid environment'})
+        }
       })
-
-      const currentEnvironment = environment()
-      if (currentEnvironment === 'DEV') {
-        res.status(302).redirect(`http://localhost:3000/authenticate/canva?${stringifiedParams}`)
-        return
-      } else if (currentEnvironment === 'PROD') {
-        res.status(302).redirect(`https://www.swaytribe.com/authenticate/canva?${stringifiedParams}`)
-      } else {
-        res.status(401).send({type: 'FAIL', message: 'Invalid environment'})
-      }
     })
   })
 })
