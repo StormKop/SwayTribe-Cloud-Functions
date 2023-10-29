@@ -16,8 +16,10 @@
   "main": "lib/index.js",
   "dependencies": {
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
-    "@remotion/renderer": "^4.0.46",
+    "@remotion/renderer": "^4.0.59",
+    "@types/cookie-parser": "^1.4.5",
     "axios": "^1.4.0",
+    "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",
     "dotenv": "^16.0.3",
     "firebase": "^10.1.0",
@@ -26,11 +28,13 @@
     "fluent-ffmpeg": "^2.1.2",
     "jsonwebtoken": "^9.0.1",
     "jwks-rsa": "^3.0.1",
-    "stripe": "^12.17.0"
+    "stripe": "^12.17.0",
+    "zod": "^3.22.4"
   },
   "devDependencies": {
     "@types/cors": "^2.8.13",
     "@types/fluent-ffmpeg": "^2.1.21",
+    "@types/react": "^18.2.33",
     "@typescript-eslint/eslint-plugin": "^5.12.0",
     "@typescript-eslint/parser": "^5.12.0",
     "eslint": "^8.9.0",
